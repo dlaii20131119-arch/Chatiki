@@ -1,1 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#100d18">
+  <meta name="description" content="Chatiki — мессенджер для друзей">
+  <title>Chatiki</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark">C</div>
+      <div class="brand-copy"><strong>Chatiki</strong><span>Твои люди. Твои чаты.</span></div>
+      <span class="online-dot" title="Chatiki"></span>
+    </header>
 
+    <main>
+      <section id="authView" class="auth-view">
+        <div class="hero">
+          <div class="hero-orb">✦</div>
+          <p class="eyebrow">ТВОЁ ПРОСТРАНСТВО</p>
+          <h1>Общайся<br><span>по-своему.</span></h1>
+          <p class="muted">Простой мессенджер для тебя и друзей.</p>
+        </div>
+        <div class="card auth-card">
+          <div class="segmented">
+            <button id="loginTab" class="segment active" type="button">Войти</button>
+            <button id="registerTab" class="segment" type="button">Регистрация</button>
+          </div>
+          <form id="authForm">
+            <label id="usernameLabel" class="field hidden">Имя пользователя
+              <input id="usernameInput" autocomplete="nickname" maxlength="24" placeholder="Например, Alex">
+            </label>
+            <label class="field">Электронная почта
+              <input id="emailInput" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+            </label>
+            <label class="field">Пароль
+              <input id="passwordInput" type="password" autocomplete="current-password" required minlength="6" maxlength="72" placeholder="Не менее 6 символов">
+            </label>
+            <button id="submitAuth" class="primary-btn" type="submit">Войти <span>→</span></button>
+            <p id="authMessage" class="message" role="status"></p>
+          </form>
+          <p class="tiny-note">Твои данные хранятся в Supabase. Никому не сообщай пароль.</p>
+        </div>
+      </section>
+
+      <section id="mainView" class="main-view hidden">
+        <div class="welcome-row">
+          <div><p class="eyebrow">РАДЫ ТЕБЯ ВИДЕТЬ</p><h1 id="welcomeName">Привет!</h1></div>
+          <button id="logoutBtn" class="icon-btn" type="button" aria-label="Выйти">↗</button>
+        </div>
+        <div id="setupNotice" class="notice hidden"></div>
+        <nav class="tabs" aria-label="Разделы">
+          <button class="nav-tab active" data-panel="chatsPanel" type="button"><span>▤</span>Чаты</button>
+          <button class="nav-tab" data-panel="friendsPanel" type="button"><span>♧</span>Друзья</button>
+          <button class="nav-tab" data-panel="profilePanel" type="button"><span>◉</span>Профиль</button>
+        </nav>
+
+        <section id="chatsPanel" class="panel">
+          <div class="section-heading"><div><p class="eyebrow">ТВОИ ДИАЛОГИ</p><h2>Сообщения</h2></div><span class="pill">CHATIKI</span></div>
+          <div class="empty-state"><div class="empty-icon">✉</div><h3>Тут будет уютно</h3><p>Добавь друга по его ID — дальше можно будет начать переписку.</p><button class="secondary-btn" data-go="friendsPanel" type="button">Найти друга</button></div>
+        </section>
+
+        <section id="friendsPanel" class="panel hidden">
+          <div class="section-heading"><div><p class="eyebrow">НЕ ТЕРЯЙ СВЯЗЬ</p><h2>Друзья</h2></div></div>
+          <div class="card">
+            <label class="field">ID друга
+              <input id="friendIdInput" autocomplete="off" maxlength="80" placeholder="Введи специальный ID">
+            </label>
+            <button id="findFriendBtn" class="primary-btn" type="button">Найти друга <span>→</span></button>
+            <p id="friendMessage" class="message" role="status"></p>
+          </div>
+          <div id="friendResult" class="card result-card hidden"></div>
+          <div class="info-card"><strong>Как добавить друга?</strong><p>Попроси друга открыть свой профиль в Chatiki и отправить тебе его ID.</p></div>
+        </section>
+
+        <section id="profilePanel" class="panel hidden">
+          <div class="profile-card">
+            <div id="avatar" class="avatar">C</div>
+            <p class="eyebrow">ТВОЙ ПРОФИЛЬ</p>
+            <h2 id="profileName">Пользователь</h2>
+            <p id="profileEmail" class="muted"></p>
+            <div class="id-box"><span>ТВОЙ ID</span><strong id="profileId">Загружаем…</strong><button id="copyIdBtn" type="button" class="copy-btn">Копировать</button></div>
+            <span id="roleBadge" class="pill">ПОЛЬЗОВАТЕЛЬ</span>
+          </div>
+          <div class="info-card"><strong>Безопасность</strong><p>Не отправляй никому пароль и не публикуй приватные данные.</p></div>
+        </section>
+      </section>
+    </main>
+    <footer><span class="footer-dot"></span> Chatiki <span class="footer-sep">•</span> создано для друзей</footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
