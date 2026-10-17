@@ -1,0 +1,6 @@
+{
+  "appId": "com.chatiki.messenger",
+  "appName": "Chatiki",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
