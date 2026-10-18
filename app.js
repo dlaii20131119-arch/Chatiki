@@ -2,7 +2,7 @@
   "use strict";
 
   // ==========================================
-  // CHATIKI — ОСНОВНОЙ КОД ПРИЛОЖЕНИЯ
+  // CHATIKI — ПОЛНЫЙ КОД ПРИЛОЖЕНИЯ
   // ==========================================
 
   let sb = null;
@@ -15,21 +15,14 @@
 
   const $ = (id) => document.getElementById(id);
 
-  const escapeHTML = (value) =>
-    String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
     })[char]);
-
-  const isUUID = (value) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-
-  function setText(id, value) {
-    const element = $(id);
-    if (element) element.textContent = value ?? "";
   }
 
   function showMessage(id, message, success = false) {
@@ -40,11 +33,7 @@
     element.style.color = success ? "#36b37e" : "#ff7373";
   }
 
-  function showAuthMessage(message, success = false) {
-    showMessage("authMessage", message, success);
-  }
-
-  function friendlyError(error) {
+  function errorText(error) {
     const message = error?.message || String(error || "Неизвестная ошибка");
 
     if (/Invalid login credentials/i.test(message)) {
@@ -52,41 +41,38 @@
     }
 
     if (/Email not confirmed/i.test(message)) {
-      return "Подтверди электронную почту или отключи подтверждение email в Supabase.";
+      return "Подтверди почту или проверь настройки подтверждения email в Supabase.";
     }
 
     if (/User already registered/i.test(message)) {
       return "Этот email уже зарегистрирован. Попробуй войти.";
     }
 
-    if (/Password should be at least/i.test(message)) {
-      return "Пароль слишком короткий.";
-    }
-
     if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-      return "Нет соединения с Supabase. Проверь интернет и config.js.";
+      return "Не удалось подключиться к Supabase. Проверь интернет и config.js.";
     }
 
     if (/infinite recursion/i.test(message)) {
-      return "Ошибка правил RLS в Supabase. Нужно проверить политики доступа.";
+      return "Ошибка политик доступа RLS в Supabase.";
     }
 
     return message;
   }
 
+  // ==========================================
+  // SUPABASE
+  // ==========================================
+
   function initSupabase() {
     const config = window.CHATIKI_CONFIG;
 
-    if (!config?.SUPABASE_URL || !config?.SUPABASE_PUBLISHABLE_KEY) {
-      throw new Error(
-        "Не найдены настройки Supabase в config.js."
-      );
+    if (!config?.SUPABASE_URL ||
+        !config?.SUPABASE_PUBLISHABLE_KEY) {
+      throw new Error("Проверь настройки Supabase в config.js.");
     }
 
     if (!window.supabase?.createClient) {
-      throw new Error(
-        "Не загрузилась библиотека Supabase. Проверь интернет."
-      );
+      throw new Error("Библиотека Supabase не загрузилась.");
     }
 
     sb = window.supabase.createClient(
@@ -96,7 +82,7 @@
   }
 
   // ==========================================
-  // ПЕРЕКЛЮЧЕНИЕ ВХОДА И РЕГИСТРАЦИИ
+  // ВХОД / РЕГИСТРАЦИЯ
   // ==========================================
 
   function setAuthMode(mode) {
@@ -116,89 +102,25 @@
       ? "new-password"
       : "current-password";
 
-    showAuthMessage("");
+    showMessage("authMessage", "");
   }
 
   function setBusy(value) {
     busy = value;
 
     const button = $("submitAuth");
-    if (button) button.disabled = value;
+    if (!button) return;
 
-    if (button) {
-      button.textContent = value
-        ? "Подожди..."
-        : ($("registerBox").hidden ? "Войти" : "Создать аккаунт");
+    button.disabled = value;
+
+    if (value) {
+      button.textContent = "Подожди...";
+    } else {
+      button.textContent = $("registerBox").hidden
+        ? "Войти"
+        : "Создать аккаунт";
     }
   }
-
-  // ==========================================
-  // РЕГИСТРАЦИЯ
-  // ==========================================
-
-  async function register() {
-    if (busy) return;
-
-    const email = $("emailInput").value.trim();
-    const password = $("passwordInput").value;
-    const username = $("usernameInput").value.trim();
-
-    if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
-      showAuthMessage(
-        "Имя: 3–24 символа, только английские буквы, цифры и _."
-      );
-      return;
-    }
-
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showAuthMessage("Введи правильный адрес электронной почты.");
-      return;
-    }
-
-    if (password.length < 6) {
-      showAuthMessage("Пароль должен содержать минимум 6 символов.");
-      return;
-    }
-
-    setBusy(true);
-    showAuthMessage("Создаём аккаунт...", true);
-
-    try {
-      const { data, error } = await sb.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username
-          }
-        }
-      });
-
-      if (error) throw error;
-
-      if (data.session && data.user) {
-        currentUser = data.user;
-        await finishLogin();
-      } else {
-        showAuthMessage(
-          "Аккаунт создан! Теперь попробуй войти. Если Supabase требует подтверждение email, сначала подтверди почту.",
-          true
-        );
-
-        setAuthMode("login");
-        $("emailInput").value = email;
-        $("passwordInput").value = "";
-      }
-    } catch (error) {
-      showAuthMessage(friendlyError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // ==========================================
-  // ВХОД
-  // ==========================================
 
   async function login() {
     if (busy) return;
@@ -207,14 +129,16 @@
     const password = $("passwordInput").value;
 
     if (!email || !password) {
-      showAuthMessage("Введи почту и пароль.");
+      showMessage("authMessage", "Введи почту и пароль.");
       return;
     }
 
     setBusy(true);
-    showAuthMessage("Входим в Chatiki...", true);
+    showMessage("authMessage", "Подключаемся к аккаунту...", true);
 
     try {
+      if (!sb) initSupabase();
+
       const { data, error } = await sb.auth.signInWithPassword({
         email,
         password
@@ -225,14 +149,78 @@
       currentUser = data.user;
       await finishLogin();
     } catch (error) {
-      showAuthMessage(friendlyError(error));
+      console.error("Ошибка входа:", error);
+      showMessage("authMessage", errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function register() {
+    if (busy) return;
+
+    const email = $("emailInput").value.trim();
+    const password = $("passwordInput").value;
+    const username = $("usernameInput").value.trim();
+
+    if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
+      showMessage(
+        "authMessage",
+        "Имя должно содержать 3–24 символа: английские буквы, цифры или _."
+      );
+      return;
+    }
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showMessage("authMessage", "Введи правильную электронную почту.");
+      return;
+    }
+
+    if (password.length < 6) {
+      showMessage("authMessage", "Пароль должен содержать минимум 6 символов.");
+      return;
+    }
+
+    setBusy(true);
+    showMessage("authMessage", "Создаём аккаунт...", true);
+
+    try {
+      if (!sb) initSupabase();
+
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username }
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.session && data.user) {
+        currentUser = data.user;
+        await finishLogin();
+      } else {
+        setAuthMode("login");
+        $("emailInput").value = email;
+        $("passwordInput").value = "";
+
+        showMessage(
+          "authMessage",
+          "Аккаунт создан! Теперь войди. Если требуется подтверждение почты, сначала подтверди email.",
+          true
+        );
+      }
+    } catch (error) {
+      console.error("Ошибка регистрации:", error);
+      showMessage("authMessage", errorText(error));
     } finally {
       setBusy(false);
     }
   }
 
   // ==========================================
-  // ЗАГРУЗКА ПРОФИЛЯ И ОСНОВНОГО ЭКРАНА
+  // ПРОФИЛЬ И ОСНОВНОЙ ЭКРАН
   // ==========================================
 
   async function loadProfile() {
@@ -249,8 +237,6 @@
       return;
     }
 
-    // Если профиль не создался автоматически,
-    // не пытаемся незаметно обходить права доступа.
     currentProfile = {
       id: currentUser.id,
       username:
@@ -261,9 +247,9 @@
       friend_id: null
     };
 
-    setText(
+    showMessage(
       "setupNotice",
-      "Профиль ещё не найден в базе. Некоторые функции могут быть недоступны."
+      "Профиль не найден в базе Supabase. Нужно проверить создание профиля."
     );
   }
 
@@ -274,51 +260,37 @@
     try {
       await loadProfile();
 
-      setText(
-        "welcomeName",
-        currentProfile.username || "друг"
-      );
+      $("welcomeName").textContent =
+        currentProfile.username || "друг";
 
-      setText(
-        "profileName",
-        currentProfile.username || "Пользователь"
-      );
+      $("profileName").textContent =
+        currentProfile.username || "Пользователь";
 
-      setText(
-        "profileEmail",
-        currentUser.email || "Не указан"
-      );
+      $("profileEmail").textContent =
+        currentUser.email || "Не указана";
 
-      setText(
-        "profileId",
-        currentProfile.friend_id || currentUser.id
-      );
+      $("profileId").textContent =
+        currentProfile.friend_id || currentUser.id;
 
-      setText(
-        "roleBadge",
+      $("roleBadge").textContent =
         currentProfile.role === "admin"
           ? "🛡️ Администратор"
-          : "👤 Пользователь"
-      );
+          : "👤 Пользователь";
 
-      if (!currentProfile.friend_id) {
-        const notice = $("setupNotice");
-        if (notice && !notice.textContent) {
-          notice.textContent =
-            "Твой ID для поиска друзей: " + currentUser.id;
-        }
+      const notice = $("setupNotice");
+
+      if (!currentProfile.friend_id && notice) {
+        notice.textContent =
+          "Твой ID: " + currentUser.id;
       }
 
       await refreshFriends();
       await refreshChats();
     } catch (error) {
-      console.error("Ошибка загрузки Chatiki:", error);
+      console.error("Ошибка загрузки профиля:", error);
 
-      setText(
-        "setupNotice",
-        "Не удалось загрузить некоторые данные: " +
-          friendlyError(error)
-      );
+      $("setupNotice").textContent =
+        "Ошибка загрузки данных: " + errorText(error);
     }
 
     showPanel("chatsPanel");
@@ -360,18 +332,17 @@
   // ==========================================
 
   function showPanel(panelId) {
-    const panels = [
+    const allowed = [
       "chatsPanel",
       "friendsPanel",
       "profilePanel"
     ];
 
-    if (!panels.includes(panelId)) return;
+    if (!allowed.includes(panelId)) return;
 
-    for (const id of panels) {
-      const panel = $(id);
-      if (panel) panel.hidden = id !== panelId;
-    }
+    allowed.forEach((id) => {
+      $(id).hidden = id !== panelId;
+    });
 
     document.querySelectorAll("[data-panel]").forEach((button) => {
       button.classList.toggle(
@@ -391,17 +362,15 @@
       return;
     }
 
-    const friendId = $("friendIdInput").value.trim();
+    const value = $("friendIdInput").value.trim();
 
-    if (!friendId) {
+    if (!value) {
       showMessage("friendMessage", "Введи ID пользователя.");
       return;
     }
 
-    if (
-      friendId === currentUser.id ||
-      friendId === currentProfile?.friend_id
-    ) {
+    if (value === currentUser.id ||
+        value === currentProfile?.friend_id) {
       showMessage("friendMessage", "Это твой собственный ID.");
       return;
     }
@@ -410,21 +379,20 @@
     $("friendResult").replaceChildren();
 
     try {
-      let query = sb
+      let { data, error } = await sb
         .from("profiles")
-        .select("id, username, friend_id, avatar_url, role")
-        .eq("friend_id", friendId);
-
-      let { data, error } = await query.maybeSingle();
+        .select("id, username, friend_id, role")
+        .eq("friend_id", value)
+        .maybeSingle();
 
       if (error) throw error;
 
-      // Поддерживаем поиск по UUID, если friend_id не найден.
-      if (!data && isUUID(friendId)) {
+      if (!data &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
         const result = await sb
           .from("profiles")
-          .select("id, username, friend_id, avatar_url, role")
-          .eq("id", friendId)
+          .select("id, username, friend_id, role")
+          .eq("id", value)
           .maybeSingle();
 
         if (result.error) throw result.error;
@@ -432,10 +400,7 @@
       }
 
       if (!data) {
-        showMessage(
-          "friendMessage",
-          "Пользователь не найден. Проверь ID."
-        );
+        showMessage("friendMessage", "Пользователь не найден.");
         return;
       }
 
@@ -447,41 +412,40 @@
       const card = document.createElement("div");
       card.className = "profile-detail";
 
-      card.innerHTML = `
-        <h3>👤 ${escapeHTML(data.username)}</h3>
-        <p>ID: ${escapeHTML(data.friend_id || data.id)}</p>
-        <button id="sendFriendRequestBtn"
-                class="primary-btn"
-                type="button">
-          💌 Отправить заявку
-        </button>
-      `;
+      const title = document.createElement("h3");
+      title.textContent = "👤 " + data.username;
 
+      const id = document.createElement("p");
+      id.textContent = "ID: " + (data.friend_id || data.id);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "primary-btn";
+      button.textContent = "💌 Отправить заявку";
+      button.addEventListener("click", () => sendFriendRequest(data.id));
+
+      card.append(title, id, button);
       $("friendResult").appendChild(card);
-
-      $("sendFriendRequestBtn").addEventListener("click", () => {
-        sendFriendRequest(data.id);
-      });
 
       showMessage("friendMessage", "Пользователь найден!", true);
     } catch (error) {
-      showMessage("friendMessage", friendlyError(error));
+      showMessage("friendMessage", errorText(error));
     }
   }
 
   // ==========================================
-  // ЗАЯВКА В ДРУЗЬЯ
+  // ЗАЯВКИ В ДРУЗЬЯ
   // ==========================================
 
-  async function sendFriendRequest(targetUserId) {
-    if (!currentUser || targetUserId === currentUser.id) return;
+  async function sendFriendRequest(targetId) {
+    if (!currentUser || targetId === currentUser.id) return;
 
     try {
       const { data: existing, error: lookupError } = await sb
         .from("friends")
-        .select("id, status")
+        .select("*")
         .or(
-          `and(user_id.eq.${currentUser.id},friend_user_id.eq.${targetUserId}),and(user_id.eq.${targetUserId},friend_user_id.eq.${currentUser.id})`
+          `and(user_id.eq.${currentUser.id},friend_user_id.eq.${targetId}),and(user_id.eq.${targetId},friend_user_id.eq.${currentUser.id})`
         );
 
       if (lookupError) throw lookupError;
@@ -491,31 +455,14 @@
         return;
       }
 
-      const incoming = existing?.find(
-        (item) =>
-          item.user_id === targetUserId &&
-          item.friend_user_id === currentUser.id &&
-          item.status === "pending"
-      );
-
-      if (incoming) {
-        showMessage(
-          "friendMessage",
-          "Этот пользователь уже отправил тебе заявку. Открой список друзей.",
-          true
-        );
-        await refreshFriends();
-        return;
-      }
-
       if (existing?.some((item) => item.status === "pending")) {
-        showMessage("friendMessage", "Заявка уже отправлена.", true);
+        showMessage("friendMessage", "Заявка уже существует.");
         return;
       }
 
       const { error } = await sb.from("friends").insert({
         user_id: currentUser.id,
-        friend_user_id: targetUserId,
+        friend_user_id: targetId,
         status: "pending"
       });
 
@@ -524,22 +471,12 @@
       showMessage("friendMessage", "Заявка отправлена! 💌", true);
       await refreshFriends();
     } catch (error) {
-      showMessage("friendMessage", friendlyError(error));
+      showMessage("friendMessage", errorText(error));
     }
   }
 
-  // ==========================================
-  // СПИСОК ДРУЗЕЙ И ЗАЯВОК
-  // ==========================================
-
   async function refreshFriends() {
     if (!currentUser) return;
-
-    const container = $("friendsPanel");
-    if (!container) return;
-
-    const section = container.querySelector(".chatiki-section");
-    if (!section) return;
 
     let list = $("friendsList");
 
@@ -547,10 +484,13 @@
       list = document.createElement("div");
       list.id = "friendsList";
       list.className = "friends-list";
-      section.appendChild(list);
+
+      $("friendsPanel")
+        .querySelector(".chatiki-section")
+        .appendChild(list);
     }
 
-    const { data: relations, error } = await sb
+    const { data, error } = await sb
       .from("friends")
       .select("*")
       .or(
@@ -559,24 +499,20 @@
       .order("created_at", { ascending: false });
 
     if (error) {
-      list.textContent = "Не удалось загрузить друзей: " +
-        friendlyError(error);
+      list.textContent = "Ошибка загрузки друзей: " + errorText(error);
       return;
     }
 
     list.replaceChildren();
 
-    const items = relations || [];
-
-    if (!items.length) {
+    if (!data?.length) {
       const empty = document.createElement("p");
-      empty.className = "empty-state";
       empty.textContent = "Пока нет друзей и заявок.";
       list.appendChild(empty);
       return;
     }
 
-    for (const relation of items) {
+    for (const relation of data) {
       const incoming =
         relation.friend_user_id === currentUser.id &&
         relation.user_id !== currentUser.id;
@@ -587,23 +523,21 @@
 
       const { data: person } = await sb
         .from("profiles")
-        .select("username, friend_id")
+        .select("username")
         .eq("id", otherId)
         .maybeSingle();
 
-      const name = person?.username || "Пользователь";
       const card = document.createElement("div");
       card.className = "profile-detail";
 
-      const heading = document.createElement("h3");
-      heading.textContent = "👤 " + name;
-      card.appendChild(heading);
+      const title = document.createElement("h3");
+      title.textContent = "👤 " + (person?.username || "Пользователь");
 
       const status = document.createElement("p");
 
       if (relation.status === "accepted") {
         status.textContent = "✅ Вы друзья";
-      } else if (relation.status === "pending" && incoming) {
+      } else if (incoming && relation.status === "pending") {
         status.textContent = "💌 Входящая заявка";
       } else if (relation.status === "pending") {
         status.textContent = "⏳ Заявка отправлена";
@@ -611,26 +545,24 @@
         status.textContent = "Заявка отклонена";
       }
 
-      card.appendChild(status);
+      card.append(title, status);
 
-      if (relation.status === "pending" && incoming) {
+      if (incoming && relation.status === "pending") {
         const accept = document.createElement("button");
         accept.type = "button";
         accept.className = "primary-btn";
         accept.textContent = "Принять";
-
-        accept.addEventListener("click", () => {
-          respondToFriendRequest(relation.id, true);
-        });
+        accept.addEventListener("click", () =>
+          respondToFriendRequest(relation.id, true)
+        );
 
         const reject = document.createElement("button");
         reject.type = "button";
         reject.className = "secondary-btn";
         reject.textContent = "Отклонить";
-
-        reject.addEventListener("click", () => {
-          respondToFriendRequest(relation.id, false);
-        });
+        reject.addEventListener("click", () =>
+          respondToFriendRequest(relation.id, false)
+        );
 
         card.append(accept, reject);
       }
@@ -641,9 +573,9 @@
         open.className = "primary-btn";
         open.textContent = "💬 Написать";
 
-        open.addEventListener("click", () => {
-          openDirectChat(otherId, name);
-        });
+        open.addEventListener("click", () =>
+          openDirectChat(otherId, person?.username || "Личный чат")
+        );
 
         card.appendChild(open);
       }
@@ -670,18 +602,18 @@
       await refreshFriends();
       await refreshChats();
     } catch (error) {
-      showMessage("friendMessage", friendlyError(error));
+      showMessage("friendMessage", errorText(error));
     }
   }
 
   // ==========================================
-  // ЧАТЫ
+  // СОЗДАНИЕ И ОТКРЫТИЕ ЧАТОВ
   // ==========================================
 
-  async function openDirectChat(otherUserId, name) {
+  async function openDirectChat(otherId, name) {
     try {
       const { data, error } = await sb.rpc("create_direct_chat", {
-        target_friend_id: otherUserId
+        target_friend_id: otherId
       });
 
       if (error) throw error;
@@ -695,9 +627,7 @@
       }
 
       if (!chatId) {
-        throw new Error(
-          "Supabase не вернул ID чата. Проверь функцию create_direct_chat."
-        );
+        throw new Error("Не удалось получить ID чата.");
       }
 
       activeChatId = chatId;
@@ -707,7 +637,7 @@
       await renderActiveChat();
       await refreshChats();
     } catch (error) {
-      showMessage("friendMessage", friendlyError(error));
+      showMessage("friendMessage", errorText(error));
     }
   }
 
@@ -715,48 +645,42 @@
     if (!currentUser) return;
 
     const list = $("chatList");
-    if (!list) return;
 
-    const { data: memberships, error } = await sb
+    const { data, error } = await sb
       .from("chat_members")
       .select("chat_id, joined_at")
       .eq("user_id", currentUser.id)
       .order("joined_at", { ascending: false });
 
     if (error) {
-      list.innerHTML = "";
-      const warning = document.createElement("p");
-      warning.textContent = "Не удалось загрузить чаты: " +
-        friendlyError(error);
-      list.appendChild(warning);
+      list.textContent = "Ошибка загрузки чатов: " + errorText(error);
       return;
     }
 
     list.replaceChildren();
 
-    const rows = memberships || [];
-
-    if (!rows.length) {
+    if (!data?.length) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.innerHTML = `
-        <div class="empty-icon">✉️</div>
-        <h3>Тут будет уютно</h3>
-        <p>Добавь друга и начни общаться после принятия заявки.</p>
-        <button type="button" class="secondary-btn" data-go="friendsPanel">
-          Найти друга
-        </button>
-      `;
 
-      empty.querySelector("[data-go]").addEventListener("click", () => {
-        showPanel("friendsPanel");
-      });
+      const title = document.createElement("h3");
+      title.textContent = "✉️ Тут будет уютно";
 
+      const text = document.createElement("p");
+      text.textContent = "Добавь друга и начни общаться после принятия заявки.";
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary-btn";
+      button.textContent = "Найти друга";
+      button.addEventListener("click", () => showPanel("friendsPanel"));
+
+      empty.append(title, text, button);
       list.appendChild(empty);
       return;
     }
 
-    for (const membership of rows) {
+    for (const membership of data) {
       const { data: members } = await sb
         .from("chat_members")
         .select("user_id")
@@ -780,13 +704,14 @@
 
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "chat-item secondary-btn";
+      button.className = "secondary-btn";
       button.textContent =
         (activeChatId === membership.chat_id ? "🟣 " : "💬 ") + name;
 
       button.addEventListener("click", async () => {
         activeChatId = membership.chat_id;
         activeChatName = name;
+
         await renderActiveChat();
         await refreshChats();
       });
@@ -794,18 +719,15 @@
       list.appendChild(button);
     }
 
-    if (activeChatId) {
-      await renderActiveChat();
-    }
+    if (activeChatId) await renderActiveChat();
   }
 
   // ==========================================
-  // ОКНО ПЕРЕПИСКИ
+  // СООБЩЕНИЯ
   // ==========================================
 
   function ensureMessengerUI() {
     let box = $("activeChatBox");
-
     if (box) return box;
 
     box = document.createElement("section");
@@ -817,16 +739,14 @@
       <div id="messageList" aria-live="polite"></div>
 
       <label for="messageInput">Сообщение</label>
-      <textarea
-        id="messageInput"
+      <textarea id="messageInput"
         maxlength="5000"
         rows="3"
-        placeholder="Напиши сообщение..."
-      ></textarea>
+        placeholder="Напиши сообщение..."></textarea>
 
-      <button id="sendMessageBtn" class="primary-btn" type="button">
-        Отправить 💌
-      </button>
+      <button id="sendMessageBtn"
+        class="primary-btn"
+        type="button">Отправить 💌</button>
 
       <p id="chatMessage" role="status" aria-live="polite"></p>
     `;
@@ -836,10 +756,7 @@
     $("sendMessageBtn").addEventListener("click", sendMessage);
 
     $("messageInput").addEventListener("keydown", (event) => {
-      if (
-        event.key === "Enter" &&
-        !event.shiftKey
-      ) {
+      if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
       }
@@ -852,7 +769,8 @@
     if (!activeChatId) return;
 
     ensureMessengerUI();
-    setText("activeChatTitle", "💬 " + activeChatName);
+
+    $("activeChatTitle").textContent = "💬 " + activeChatName;
 
     await loadMessages(activeChatId);
   }
@@ -862,8 +780,6 @@
 
     ensureMessengerUI();
 
-    const list = $("messageList");
-
     const { data, error } = await sb
       .from("messages")
       .select("id, chat_id, sender_id, content, created_at")
@@ -872,15 +788,15 @@
       .limit(200);
 
     if (error) {
-      showMessage("chatMessage", friendlyError(error));
+      showMessage("chatMessage", errorText(error));
       return;
     }
 
+    const list = $("messageList");
     list.replaceChildren();
 
     if (!data?.length) {
       const empty = document.createElement("p");
-      empty.className = "empty-state";
       empty.textContent = "Начни переписку! Напиши первое сообщение 💜";
       list.appendChild(empty);
       return;
@@ -889,18 +805,17 @@
     for (const message of data) {
       const item = document.createElement("div");
       item.className = "message-item";
-
-      const mine = message.sender_id === currentUser.id;
-
       item.style.padding = "10px";
       item.style.margin = "8px 0";
       item.style.borderRadius = "12px";
-      item.style.background = mine
-        ? "rgba(135, 90, 230, 0.22)"
-        : "rgba(255, 255, 255, 0.06)";
+      item.style.background =
+        message.sender_id === currentUser.id
+          ? "rgba(135,90,230,0.22)"
+          : "rgba(255,255,255,0.06)";
 
       const author = document.createElement("strong");
-      author.textContent = mine ? "Ты" : activeChatName;
+      author.textContent =
+        message.sender_id === currentUser.id ? "Ты" : activeChatName;
 
       const content = document.createElement("p");
       content.style.whiteSpace = "pre-wrap";
@@ -928,8 +843,7 @@
 
     if (!content) return;
 
-    const button = $("sendMessageBtn");
-    button.disabled = true;
+    $("sendMessageBtn").disabled = true;
 
     try {
       const { error } = await sb.from("messages").insert({
@@ -941,23 +855,22 @@
       if (error) throw error;
 
       input.value = "";
-      showMessage("chatMessage", "Сообщение отправлено 💜", true);
+      showMessage("chatMessage", "Сообщение отправлено! 💜", true);
 
       await loadMessages(activeChatId);
     } catch (error) {
-      showMessage("chatMessage", friendlyError(error));
+      showMessage("chatMessage", errorText(error));
     } finally {
-      button.disabled = false;
+      $("sendMessageBtn").disabled = false;
     }
   }
 
   // ==========================================
-  // КОПИРОВАНИЕ ID
+  // ПРОФИЛЬ: КОПИРОВАНИЕ ID
   // ==========================================
 
   async function copyMyId() {
     const id = currentProfile?.friend_id || currentUser?.id;
-
     if (!id) return;
 
     try {
@@ -969,7 +882,7 @@
   }
 
   // ==========================================
-  // ВЫХОД
+  // ВЫХОД ИЗ АККАУНТА
   // ==========================================
 
   async function logout() {
@@ -982,7 +895,6 @@
       }
 
       const { error } = await sb.auth.signOut();
-
       if (error) throw error;
 
       currentUser = null;
@@ -992,17 +904,17 @@
 
       $("mainView").hidden = true;
       $("authView").hidden = false;
-
       $("passwordInput").value = "";
-      showAuthMessage("Ты вышел из аккаунта.", true);
+
       setAuthMode("login");
+      showMessage("authMessage", "Ты вышел из аккаунта.", true);
     } catch (error) {
-      alert("Не удалось выйти: " + friendlyError(error));
+      alert("Ошибка выхода: " + errorText(error));
     }
   }
 
   // ==========================================
-  // ПОДКЛЮЧЕНИЕ КНОПОК
+  // КНОПКИ — ПОДКЛЮЧАЕМ ДО SUPABASE
   // ==========================================
 
   function wireEvents() {
@@ -1024,14 +936,18 @@
       }
     });
 
-    ["emailInput", "passwordInput", "usernameInput"].forEach((id) => {
+    [
+      "emailInput",
+      "passwordInput",
+      "usernameInput"
+    ].forEach((id) => {
       $(id).addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !busy) {
-          if ($("registerBox").hidden) {
-            login();
-          } else {
-            register();
-          }
+        if (event.key !== "Enter" || busy) return;
+
+        if ($("registerBox").hidden) {
+          login();
+        } else {
+          register();
         }
       });
     });
@@ -1059,23 +975,38 @@
   }
 
   // ==========================================
-  // ЗАПУСК CHATIKI
+  // ЗАПУСК ПРИЛОЖЕНИЯ
   // ==========================================
 
   async function startApp() {
+    // ВАЖНО: сначала подключаем кнопки.
+    // Даже если Supabase не загрузится, кнопки
+    // переключения входа и регистрации будут работать.
     try {
-      initSupabase();
       wireEvents();
       setAuthMode("login");
+    } catch (error) {
+      console.error("Ошибка подключения кнопок:", error);
+      showMessage(
+        "authMessage",
+        "Не удалось подключить кнопки: " + errorText(error)
+      );
+      return;
+    }
+
+    // Затем подключаем Supabase и восстанавливаем сессию.
+    try {
+      initSupabase();
       await restoreSession();
     } catch (error) {
-      console.error("Chatiki startup error:", error);
+      console.error("Ошибка запуска Chatiki:", error);
 
       $("authView").hidden = false;
       $("mainView").hidden = true;
 
-      showAuthMessage(
-        "Ошибка запуска: " + friendlyError(error)
+      showMessage(
+        "authMessage",
+        "Ошибка запуска: " + errorText(error)
       );
     }
   }
