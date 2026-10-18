@@ -3,7 +3,7 @@
 
   // ==========================================
   // CHATIKI — МЕССЕНДЖЕР
-  // ТЕКСТОВЫЕ СООБЩЕНИЯ И ФОТОГРАФИИ
+  // ТЕКСТ, ФОТОГРАФИИ И СТАТУСЫ ДРУЗЕЙ
   // ==========================================
 
   let sb = null;
@@ -12,12 +12,19 @@
   let activeChatId = null;
   let activeChatName = "";
   let refreshTimer = null;
+  let presenceTimer = null;
   let busy = false;
   let photoBusy = false;
+  let presenceBusy = false;
 
   const PHOTO_BUCKET = "chat-photos";
   const MAX_PHOTO_SIZE = 8 * 1024 * 1024;
   const PHOTO_PREFIX = "CHATIKI_PHOTO:";
+
+  // Считаем пользователя онлайн, если активность
+  // обновлялась в течение последних 60 секунд.
+  const ONLINE_TIMEOUT = 60 * 1000;
+  const PRESENCE_INTERVAL = 20 * 1000;
 
   const $ = (id) => document.getElementById(id);
 
@@ -90,6 +97,190 @@
       config.SUPABASE_URL,
       config.SUPABASE_PUBLISHABLE_KEY
     );
+  }
+
+  // ==========================================
+  // СТАТУСЫ ОНЛАЙН / ОФЛАЙН
+  // ==========================================
+
+  async function updateMyPresence(isOnline = true) {
+    if (!sb || !currentUser || presenceBusy) return;
+
+    presenceBusy = true;
+
+    try {
+      const { error } = await sb
+        .from("user_presence")
+        .upsert(
+          {
+            user_id: currentUser.id,
+            is_online: isOnline,
+            last_seen: new Date().toISOString()
+          },
+          {
+            onConflict: "user_id"
+          }
+        );
+
+      if (error) throw error;
+    } catch (error) {
+      console.error("Не удалось обновить статус:", error);
+    } finally {
+      presenceBusy = false;
+    }
+  }
+
+  function startPresence() {
+    stopPresence();
+
+    if (!currentUser) return;
+
+    // Сразу устанавливаем статус онлайн.
+    updateMyPresence(true);
+
+    // Регулярно обновляем время активности.
+    presenceTimer = setInterval(() => {
+      if (currentUser && document.visibilityState === "visible") {
+        updateMyPresence(true);
+      }
+    }, PRESENCE_INTERVAL);
+  }
+
+  function stopPresence() {
+    if (presenceTimer) {
+      clearInterval(presenceTimer);
+      presenceTimer = null;
+    }
+  }
+
+  async function markOffline() {
+    if (!sb || !currentUser) return;
+
+    try {
+      const { error } = await sb
+        .from("user_presence")
+        .upsert(
+          {
+            user_id: currentUser.id,
+            is_online: false,
+            last_seen: new Date().toISOString()
+          },
+          {
+            onConflict: "user_id"
+          }
+        );
+
+      if (error) {
+        console.error("Не удалось установить офлайн:", error);
+      }
+    } catch (error) {
+      console.error("Ошибка статуса офлайн:", error);
+    }
+  }
+
+  function isActuallyOnline(presence) {
+    if (!presence || !presence.is_online || !presence.last_seen) {
+      return false;
+    }
+
+    const lastSeen = new Date(presence.last_seen).getTime();
+
+    if (!Number.isFinite(lastSeen)) return false;
+
+    return Date.now() - lastSeen <= ONLINE_TIMEOUT;
+  }
+
+  function formatLastSeen(presence) {
+    if (!presence?.last_seen) {
+      return "Не в сети";
+    }
+
+    const lastSeen = new Date(presence.last_seen);
+    const timestamp = lastSeen.getTime();
+
+    if (!Number.isFinite(timestamp)) {
+      return "Не в сети";
+    }
+
+    const age = Date.now() - timestamp;
+
+    if (age < 60 * 1000) {
+      return "Был(а) недавно";
+    }
+
+    if (age < 60 * 60 * 1000) {
+      const minutes = Math.floor(age / (60 * 1000));
+      return `Был(а) ${minutes} мин. назад`;
+    }
+
+    if (age < 24 * 60 * 60 * 1000) {
+      return "Был(а) сегодня, в " +
+        lastSeen.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+    }
+
+    return "Был(а) " +
+      lastSeen.toLocaleDateString([], {
+        day: "2-digit",
+        month: "2-digit"
+      });
+  }
+
+  function createPresenceElement(presence) {
+    const online = isActuallyOnline(presence);
+
+    const row = document.createElement("p");
+    row.className = "chatiki-presence";
+    row.style.cssText =
+      "display:flex;align-items:center;gap:7px;" +
+      "margin:5px 0 10px;font-size:13px;";
+
+    const dot = document.createElement("span");
+    dot.setAttribute("aria-hidden", "true");
+    dot.style.cssText =
+      "display:inline-block;width:9px;height:9px;" +
+      "min-width:9px;border-radius:50%;" +
+      `background:${online ? "#36d67e" : "#8b8795"};`;
+
+    const label = document.createElement("span");
+
+    label.textContent = online
+      ? "В сети"
+      : formatLastSeen(presence);
+
+    label.style.color = online ? "#36d67e" : "#aaa5b5";
+
+    row.append(dot, label);
+
+    return row;
+  }
+
+  async function getPresenceForUsers(userIds) {
+    const result = new Map();
+
+    const uniqueIds = [...new Set(
+      (userIds || []).filter(Boolean)
+    )];
+
+    if (!uniqueIds.length) return result;
+
+    const { data, error } = await sb
+      .from("user_presence")
+      .select("user_id, is_online, last_seen")
+      .in("user_id", uniqueIds);
+
+    if (error) {
+      console.error("Не удалось загрузить статусы:", error);
+      return result;
+    }
+
+    for (const item of data || []) {
+      result.set(item.user_id, item);
+    }
+
+    return result;
   }
 
   // ==========================================
@@ -294,6 +485,9 @@
       if (!currentProfile.friend_id && $("setupNotice")) {
         $("setupNotice").textContent = "Твой ID: " + currentUser.id;
       }
+
+      // Запускаем обновление присутствия пользователя.
+      startPresence();
 
       await refreshFriends();
       await refreshChats();
@@ -534,6 +728,16 @@
       return;
     }
 
+    // Получаем профили всех собеседников.
+    const otherIds = data.map((relation) =>
+      relation.friend_user_id === currentUser.id
+        ? relation.user_id
+        : relation.friend_user_id
+    );
+
+    // Загружаем статусы одним запросом.
+    const presenceMap = await getPresenceForUsers(otherIds);
+
     for (const relation of data) {
       const incoming =
         relation.friend_user_id === currentUser.id &&
@@ -556,6 +760,14 @@
       title.textContent =
         "👤 " + (person?.username || "Пользователь");
 
+      card.appendChild(title);
+
+      if (relation.status === "accepted") {
+        // Показываем онлайн/офлайн только для друзей.
+        const presence = presenceMap.get(otherId) || null;
+        card.appendChild(createPresenceElement(presence));
+      }
+
       const status = document.createElement("p");
 
       if (relation.status === "accepted") {
@@ -568,7 +780,7 @@
         status.textContent = "Заявка отклонена";
       }
 
-      card.append(title, status);
+      card.appendChild(status);
 
       if (incoming && relation.status === "pending") {
         const accept = document.createElement("button");
@@ -756,13 +968,12 @@
   }
 
   // ==========================================
-  // ОКНО ПЕРЕПИСКИ — ИСПРАВЛЕННАЯ ВЕРСИЯ
+  // ОКНО ПЕРЕПИСКИ
   // ==========================================
 
   function ensureMessengerUI() {
     let box = $("activeChatBox");
 
-    // Создаём окно, только если его ещё нет.
     if (!box) {
       box = document.createElement("section");
       box.id = "activeChatBox";
@@ -811,9 +1022,6 @@
 
       $("chatsPanel").appendChild(box);
     }
-
-    // Если старое окно уже было создано, не выходим сразу.
-    // Проверяем и восстанавливаем все необходимые элементы.
 
     let controls = $("chatControls");
 
@@ -908,8 +1116,6 @@
       status.setAttribute("aria-live", "polite");
       box.appendChild(status);
     }
-
-    // Подключаем обработчики только один раз.
 
     if (!sendButton.dataset.bound) {
       sendButton.dataset.bound = "true";
@@ -1257,10 +1463,15 @@
     if (!sb) return;
 
     try {
+      stopPresence();
+
       if (refreshTimer) {
         clearInterval(refreshTimer);
         refreshTimer = null;
       }
+
+      // Помечаем аккаунт офлайн перед выходом.
+      await markOffline();
 
       const { error } = await sb.auth.signOut();
       if (error) throw error;
@@ -1340,6 +1551,15 @@
 
     $("profileLogoutBtn").addEventListener("click", logout);
     $("copyMyIdBtn").addEventListener("click", copyMyId);
+
+    // Если пользователь возвращается на страницу,
+    // сразу обновляем его статус.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && currentUser) {
+        updateMyPresence(true);
+        refreshFriends();
+      }
+    });
   }
 
   // ==========================================
