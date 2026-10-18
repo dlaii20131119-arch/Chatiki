@@ -2,7 +2,7 @@
   "use strict";
 
   // ==========================================
-  // CHATIKI — ПОЛНЫЙ КОД ПРИЛОЖЕНИЯ
+  // CHATIKI — ТЕКСТОВЫЕ СООБЩЕНИЯ И ФОТО
   // ==========================================
 
   let sb = null;
@@ -12,6 +12,11 @@
   let activeChatName = "";
   let refreshTimer = null;
   let busy = false;
+  let photoBusy = false;
+
+  const PHOTO_BUCKET = "chat-photos";
+  const MAX_PHOTO_SIZE = 8 * 1024 * 1024;
+  const PHOTO_PREFIX = "CHATIKI_PHOTO:";
 
   const $ = (id) => document.getElementById(id);
 
@@ -41,7 +46,7 @@
     }
 
     if (/Email not confirmed/i.test(message)) {
-      return "Подтверди почту или проверь настройки подтверждения email в Supabase.";
+      return "Подтверди почту или проверь настройки Supabase.";
     }
 
     if (/User already registered/i.test(message)) {
@@ -49,11 +54,19 @@
     }
 
     if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-      return "Не удалось подключиться к Supabase. Проверь интернет и config.js.";
+      return "Нет подключения к Supabase. Проверь интернет и config.js.";
     }
 
     if (/infinite recursion/i.test(message)) {
       return "Ошибка политик доступа RLS в Supabase.";
+    }
+
+    if (/row-level security|permission denied|not allowed/i.test(message)) {
+      return "Нет доступа. Проверь политики доступа Supabase.";
+    }
+
+    if (/Payload too large|exceeded the maximum allowed size/i.test(message)) {
+      return "Фотография слишком большая. Выбери фото до 8 МБ.";
     }
 
     return message;
@@ -82,7 +95,7 @@
   }
 
   // ==========================================
-  // ВХОД / РЕГИСТРАЦИЯ
+  // ВХОД И РЕГИСТРАЦИЯ
   // ==========================================
 
   function setAuthMode(mode) {
@@ -166,7 +179,7 @@
     if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
       showMessage(
         "authMessage",
-        "Имя должно содержать 3–24 символа: английские буквы, цифры или _."
+        "Имя: 3–24 символа, английские буквы, цифры или _."
       );
       return;
     }
@@ -207,7 +220,7 @@
 
         showMessage(
           "authMessage",
-          "Аккаунт создан! Теперь войди. Если требуется подтверждение почты, сначала подтверди email.",
+          "Аккаунт создан! Теперь войди. Если требуется подтверждение почты, подтверди email.",
           true
         );
       }
@@ -220,7 +233,7 @@
   }
 
   // ==========================================
-  // ПРОФИЛЬ И ОСНОВНОЙ ЭКРАН
+  // ПРОФИЛЬ
   // ==========================================
 
   async function loadProfile() {
@@ -249,7 +262,7 @@
 
     showMessage(
       "setupNotice",
-      "Профиль не найден в базе Supabase. Нужно проверить создание профиля."
+      "Профиль не найден в Supabase. Проверь создание профиля."
     );
   }
 
@@ -277,11 +290,8 @@
           ? "🛡️ Администратор"
           : "👤 Пользователь";
 
-      const notice = $("setupNotice");
-
-      if (!currentProfile.friend_id && notice) {
-        notice.textContent =
-          "Твой ID: " + currentUser.id;
+      if (!currentProfile.friend_id && $("setupNotice")) {
+        $("setupNotice").textContent = "Твой ID: " + currentUser.id;
       }
 
       await refreshFriends();
@@ -607,7 +617,7 @@
   }
 
   // ==========================================
-  // СОЗДАНИЕ И ОТКРЫТИЕ ЧАТОВ
+  // ЧАТЫ
   // ==========================================
 
   async function openDirectChat(otherId, name) {
@@ -667,7 +677,8 @@
       title.textContent = "✉️ Тут будет уютно";
 
       const text = document.createElement("p");
-      text.textContent = "Добавь друга и начни общаться после принятия заявки.";
+      text.textContent =
+        "Добавь друга и начни общаться после принятия заявки.";
 
       const button = document.createElement("button");
       button.type = "button";
@@ -723,7 +734,7 @@
   }
 
   // ==========================================
-  // СООБЩЕНИЯ
+  // ОКНО ПЕРЕПИСКИ
   // ==========================================
 
   function ensureMessengerUI() {
@@ -736,7 +747,9 @@
 
     box.innerHTML = `
       <h2 id="activeChatTitle">💬 Переписка</h2>
-      <div id="messageList" aria-live="polite"></div>
+
+      <div id="messageList" aria-live="polite"
+        style="max-height:55vh;overflow-y:auto;"></div>
 
       <label for="messageInput">Сообщение</label>
       <textarea id="messageInput"
@@ -744,10 +757,22 @@
         rows="3"
         placeholder="Напиши сообщение..."></textarea>
 
-      <button id="sendMessageBtn"
-        class="primary-btn"
-        type="button">Отправить 💌</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button id="sendMessageBtn"
+          class="primary-btn"
+          type="button">Отправить 💌</button>
 
+        <button id="choosePhotoBtn"
+          class="secondary-btn"
+          type="button">📷 Фото</button>
+      </div>
+
+      <input id="photoInput"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        hidden>
+
+      <p id="photoStatus" role="status" aria-live="polite"></p>
       <p id="chatMessage" role="status" aria-live="polite"></p>
     `;
 
@@ -762,6 +787,24 @@
       }
     });
 
+    $("choosePhotoBtn").addEventListener("click", () => {
+      if (!activeChatId) {
+        showMessage("photoStatus", "Сначала открой личный чат.");
+        return;
+      }
+
+      $("photoInput").click();
+    });
+
+    $("photoInput").addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+
+      if (file) await sendPhoto(file);
+
+      // Позволяет повторно выбрать тот же файл.
+      event.target.value = "";
+    });
+
     return box;
   }
 
@@ -774,6 +817,114 @@
 
     await loadMessages(activeChatId);
   }
+
+  // ==========================================
+  // ФОТОГРАФИИ
+  // ==========================================
+
+  function isAllowedPhoto(file) {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif"
+    ];
+
+    return allowedTypes.includes(file.type);
+  }
+
+  async function sendPhoto(file) {
+    if (photoBusy) return;
+
+    if (!currentUser || !activeChatId) {
+      showMessage("photoStatus", "Сначала открой личный чат.");
+      return;
+    }
+
+    if (!isAllowedPhoto(file)) {
+      showMessage(
+        "photoStatus",
+        "Выбери изображение JPG, PNG, WEBP или GIF."
+      );
+      return;
+    }
+
+    if (file.size > MAX_PHOTO_SIZE) {
+      showMessage(
+        "photoStatus",
+        "Фото больше 8 МБ. Выбери фотографию поменьше."
+      );
+      return;
+    }
+
+    photoBusy = true;
+    $("choosePhotoBtn").disabled = true;
+    showMessage("photoStatus", "Загружаем фотографию...", true);
+
+    let uploadedPath = null;
+
+    try {
+      const safeName = file.name
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(-80) || "photo.jpg";
+
+      const filePath =
+        `${activeChatId}/${currentUser.id}/` +
+        `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+
+      const { data: uploaded, error: uploadError } = await sb
+        .storage
+        .from(PHOTO_BUCKET)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          contentType: file.type,
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      uploadedPath = uploaded.path;
+
+      const { error: messageError } = await sb
+        .from("messages")
+        .insert({
+          chat_id: activeChatId,
+          sender_id: currentUser.id,
+          content: PHOTO_PREFIX + uploadedPath
+        });
+
+      if (messageError) {
+        // Если сообщение не сохранилось, удаляем загруженный файл.
+        await sb.storage.from(PHOTO_BUCKET).remove([uploadedPath]);
+        throw messageError;
+      }
+
+      showMessage("photoStatus", "Фотография отправлена! 📸", true);
+
+      await loadMessages(activeChatId);
+    } catch (error) {
+      console.error("Ошибка отправки фото:", error);
+      showMessage("photoStatus", errorText(error));
+    } finally {
+      photoBusy = false;
+      $("choosePhotoBtn").disabled = false;
+    }
+  }
+
+  async function createPhotoURL(path) {
+    const { data, error } = await sb
+      .storage
+      .from(PHOTO_BUCKET)
+      .createSignedUrl(path, 3600);
+
+    if (error) throw error;
+
+    return data.signedUrl;
+  }
+
+  // ==========================================
+  // ЗАГРУЗКА СООБЩЕНИЙ
+  // ==========================================
 
   async function loadMessages(chatId) {
     if (!currentUser || !chatId) return;
@@ -805,32 +956,88 @@
     for (const message of data) {
       const item = document.createElement("div");
       item.className = "message-item";
-      item.style.padding = "10px";
-      item.style.margin = "8px 0";
-      item.style.borderRadius = "12px";
-      item.style.background =
-        message.sender_id === currentUser.id
+
+      Object.assign(item.style, {
+        padding: "10px",
+        margin: "8px 0",
+        borderRadius: "12px",
+        overflowWrap: "anywhere",
+        background: message.sender_id === currentUser.id
           ? "rgba(135,90,230,0.22)"
-          : "rgba(255,255,255,0.06)";
+          : "rgba(255,255,255,0.06)"
+      });
 
       const author = document.createElement("strong");
       author.textContent =
-        message.sender_id === currentUser.id ? "Ты" : activeChatName;
+        message.sender_id === currentUser.id
+          ? "Ты"
+          : activeChatName;
 
-      const content = document.createElement("p");
-      content.style.whiteSpace = "pre-wrap";
-      content.style.overflowWrap = "anywhere";
-      content.textContent = message.content;
+      item.appendChild(author);
+
+      const content = message.content || "";
+
+      if (content.startsWith(PHOTO_PREFIX)) {
+        const path = content.slice(PHOTO_PREFIX.length);
+
+        const image = document.createElement("img");
+        image.alt = "Фотография из чата";
+        image.loading = "lazy";
+
+        Object.assign(image.style, {
+          display: "block",
+          maxWidth: "100%",
+          width: "auto",
+          maxHeight: "360px",
+          objectFit: "contain",
+          borderRadius: "10px",
+          marginTop: "8px",
+          cursor: "pointer"
+        });
+
+        image.addEventListener("click", () => {
+          window.open(image.src, "_blank", "noopener,noreferrer");
+        });
+
+        image.src = "";
+
+        const loading = document.createElement("p");
+        loading.textContent = "Загружаем фото...";
+
+        item.appendChild(loading);
+        item.appendChild(image);
+
+        createPhotoURL(path)
+          .then((url) => {
+            image.src = url;
+            loading.remove();
+          })
+          .catch((photoError) => {
+            console.error("Не удалось открыть фото:", photoError);
+            loading.textContent =
+              "Не удалось загрузить фото. Проверь доступ к хранилищу.";
+          });
+      } else {
+        const text = document.createElement("p");
+        text.style.whiteSpace = "pre-wrap";
+        text.style.overflowWrap = "anywhere";
+        text.textContent = content;
+        item.appendChild(text);
+      }
 
       const time = document.createElement("small");
       time.textContent = new Date(message.created_at).toLocaleString();
 
-      item.append(author, content, time);
+      item.appendChild(time);
       list.appendChild(item);
     }
 
     list.scrollTop = list.scrollHeight;
   }
+
+  // ==========================================
+  // ОТПРАВКА ТЕКСТА
+  // ==========================================
 
   async function sendMessage() {
     if (!currentUser || !activeChatId) {
@@ -866,7 +1073,7 @@
   }
 
   // ==========================================
-  // ПРОФИЛЬ: КОПИРОВАНИЕ ID
+  // КОПИРОВАНИЕ ID
   // ==========================================
 
   async function copyMyId() {
@@ -882,7 +1089,7 @@
   }
 
   // ==========================================
-  // ВЫХОД ИЗ АККАУНТА
+  // ВЫХОД
   // ==========================================
 
   async function logout() {
@@ -914,17 +1121,12 @@
   }
 
   // ==========================================
-  // КНОПКИ — ПОДКЛЮЧАЕМ ДО SUPABASE
+  // ПОДКЛЮЧЕНИЕ КНОПОК
   // ==========================================
 
   function wireEvents() {
-    $("loginTab").addEventListener("click", () => {
-      setAuthMode("login");
-    });
-
-    $("registerTab").addEventListener("click", () => {
-      setAuthMode("register");
-    });
+    $("loginTab").addEventListener("click", () => setAuthMode("login"));
+    $("registerTab").addEventListener("click", () => setAuthMode("register"));
 
     $("submitAuth").addEventListener("click", () => {
       if (busy) return;
@@ -975,13 +1177,10 @@
   }
 
   // ==========================================
-  // ЗАПУСК ПРИЛОЖЕНИЯ
+  // ЗАПУСК
   // ==========================================
 
   async function startApp() {
-    // ВАЖНО: сначала подключаем кнопки.
-    // Даже если Supabase не загрузится, кнопки
-    // переключения входа и регистрации будут работать.
     try {
       wireEvents();
       setAuthMode("login");
@@ -994,7 +1193,6 @@
       return;
     }
 
-    // Затем подключаем Supabase и восстанавливаем сессию.
     try {
       initSupabase();
       await restoreSession();
