@@ -1,7 +1,12 @@
 (() => {
   "use strict";
 
+  // ==========================================
+  // CHATIKI — ПОЛНЫЙ APP.JS
+  // ==========================================
+
   const $ = id => document.getElementById(id);
+
   const config = window.CHATIKI_CONFIG || {};
 
   let sb = null;
@@ -9,7 +14,7 @@
   let currentProfile = null;
   let activeChatId = null;
   let refreshTimer = null;
-  let busy = false;
+  let isBusy = false;
 
   const escapeHTML = value =>
     String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -20,22 +25,32 @@
       "'": "&#39;"
     })[char]);
 
+  // ==========================================
+  // УВЕДОМЛЕНИЯ
+  // ==========================================
+
   function notify(message, type = "info") {
     const authView = $("authView");
-    const authMessage = $("authMessage");
+    const mainView = $("mainView");
 
-    if (authView && !authView.hidden && authMessage) {
-      authMessage.textContent = message;
-      authMessage.dataset.type = type;
-      return;
+    if (authView && !authView.hidden) {
+      const target = $("authMessage");
+
+      if (target) {
+        target.textContent = message;
+        target.dataset.type = type;
+        return;
+      }
     }
 
     const friendMessage = $("friendMessage");
 
     if (
+      mainView &&
+      !mainView.hidden &&
+      friendMessage &&
       $("friendsPanel") &&
-      !$("friendsPanel").hidden &&
-      friendMessage
+      !$("friendsPanel").hidden
     ) {
       friendMessage.textContent = message;
       friendMessage.dataset.type = type;
@@ -45,10 +60,23 @@
     alert(message);
   }
 
+  function showError(error, prefix = "Ошибка") {
+    console.error(prefix, error);
+
+    notify(
+      `${prefix}: ${error?.message || String(error)}`,
+      "error"
+    );
+  }
+
+  // ==========================================
+  // ПОДКЛЮЧЕНИЕ SUPABASE
+  // ==========================================
+
   function initSupabase() {
     if (!window.supabase?.createClient) {
       throw new Error(
-        "Supabase не загрузился. Проверь интернет и подключение библиотеки в index.html."
+        "Supabase не загрузился. Проверь интернет."
       );
     }
 
@@ -67,33 +95,33 @@
     );
   }
 
-  // =========================
-  // АВТОРИЗАЦИЯ
-  // =========================
+  // ==========================================
+  // РЕГИСТРАЦИЯ И ВХОД
+  // ==========================================
 
   function setAuthMode(mode) {
-    const isRegister = mode === "register";
+    const registerMode = mode === "register";
 
     if ($("loginBox")) {
       $("loginBox").hidden = false;
     }
 
     if ($("registerBox")) {
-      $("registerBox").hidden = !isRegister;
+      $("registerBox").hidden = !registerMode;
     }
 
     $("loginTab")?.classList.toggle(
       "active",
-      !isRegister
+      !registerMode
     );
 
     $("registerTab")?.classList.toggle(
       "active",
-      isRegister
+      registerMode
     );
 
     if ($("submitAuth")) {
-      $("submitAuth").textContent = isRegister
+      $("submitAuth").textContent = registerMode
         ? "Создать аккаунт"
         : "Войти";
     }
@@ -101,29 +129,42 @@
     if ($("authMessage")) {
       $("authMessage").textContent = "";
     }
+
+    const passwordInput = $("passwordInput");
+
+    if (passwordInput) {
+      passwordInput.autocomplete = registerMode
+        ? "new-password"
+        : "current-password";
+    }
   }
 
   function setBusy(value) {
-    busy = value;
+    isBusy = value;
 
-    if ($("submitAuth")) {
-      $("submitAuth").disabled = value;
-      $("submitAuth").textContent = value
+    const button = $("submitAuth");
+
+    if (button) {
+      button.disabled = value;
+
+      button.textContent = value
         ? "Подождите..."
-        : "Войти";
+        : $("registerBox") && !$("registerBox").hidden
+          ? "Создать аккаунт"
+          : "Войти";
     }
   }
 
   async function handleAuth(event) {
     event?.preventDefault();
 
-    if (busy) return;
+    if (isBusy) return;
 
-    const isRegister =
+    const registerMode =
       $("registerBox") &&
       !$("registerBox").hidden;
 
-    if (isRegister) {
+    if (registerMode) {
       await register();
     } else {
       await login();
@@ -149,7 +190,7 @@
 
     if (!email || password.length < 6) {
       notify(
-        "Введи почту и пароль минимум из 6 символов."
+        "Введи почту и пароль длиной минимум 6 символов."
       );
       return;
     }
@@ -161,7 +202,9 @@
         email,
         password,
         options: {
-          data: { username }
+          data: {
+            username
+          }
         }
       });
 
@@ -172,6 +215,8 @@
 
         await loadProfile();
         showMainView();
+
+        notify("Добро пожаловать в Chatiki! 💜");
       } else {
         setAuthMode("login");
 
@@ -180,16 +225,11 @@
         }
 
         notify(
-          "Аккаунт создан! Теперь попробуй войти."
+          "Аккаунт создан! Теперь войди в него. Если потребуется подтверждение почты, проверь настройки Supabase."
         );
       }
     } catch (error) {
-      console.error("register:", error);
-
-      notify(
-        "Ошибка регистрации: " + error.message,
-        "error"
-      );
+      showError(error, "Ошибка регистрации");
     } finally {
       setBusy(false);
     }
@@ -203,7 +243,7 @@
       $("passwordInput")?.value || "";
 
     if (!email || !password) {
-      notify("Введи почту и пароль.");
+      notify("Введи электронную почту и пароль.");
       return;
     }
 
@@ -224,12 +264,7 @@
       showMainView();
 
     } catch (error) {
-      console.error("login:", error);
-
-      notify(
-        "Ошибка входа: " + error.message,
-        "error"
-      );
+      showError(error, "Ошибка входа");
     } finally {
       setBusy(false);
     }
@@ -241,25 +276,19 @@
 
     if (error) throw error;
 
-    if (!data.session?.user) return;
+    if (!data.session?.user) {
+      return;
+    }
 
     currentUser = data.session.user;
 
-    try {
-      await loadProfile();
-      showMainView();
-    } catch (error) {
-      console.error("restoreSession:", error);
-      notify(
-        "Не удалось загрузить профиль: " +
-        error.message
-      );
-    }
+    await loadProfile();
+    showMainView();
   }
 
-  // =========================
+  // ==========================================
   // ПРОФИЛЬ
-  // =========================
+  // ==========================================
 
   async function loadProfile() {
     if (!currentUser) {
@@ -278,28 +307,127 @@
 
     if (!data) {
       throw new Error(
-        "Профиль не найден. Проверь функцию создания профиля в Supabase."
+        "Профиль не найден в таблице profiles. Проверь создание профиля в Supabase."
       );
     }
 
     currentProfile = data;
+
     renderProfile();
   }
 
-  function myIdentifier() {
+  function getMyId() {
     return currentProfile?.friend_id ||
       currentUser?.id ||
       "";
   }
 
   function renderProfile() {
-    if (!currentProfile) return;
+    if (!currentUser || !currentProfile) return;
 
     const username =
       currentProfile.username || "Пользователь";
 
+    const email =
+      currentUser.email || "Не указана";
+
+    const id =
+      getMyId();
+
     if ($("welcomeName")) {
       $("welcomeName").textContent = username;
+    }
+
+    /*
+      Создаём содержимое профиля автоматически,
+      если в index.html пока нет его полей.
+    */
+
+    const profilePanel = $("profilePanel");
+
+    if (profilePanel) {
+      let profileCard = $("chatikiProfileCard");
+
+      if (!profileCard) {
+        profileCard = document.createElement("section");
+        profileCard.id = "chatikiProfileCard";
+        profileCard.className = "chatiki-section";
+
+        profilePanel.appendChild(profileCard);
+      }
+
+      profileCard.innerHTML = `
+        <div class="profile-avatar">
+          ${escapeHTML(username.charAt(0).toUpperCase())}
+        </div>
+
+        <h2>${escapeHTML(username)}</h2>
+
+        <p class="subtitle">
+          ${
+            currentProfile.role === "admin"
+              ? "🛡️ Администратор"
+              : "👤 Пользователь Chatiki"
+          }
+        </p>
+
+        <div class="profile-detail">
+          <strong>📧 Электронная почта</strong>
+          <p>${escapeHTML(email)}</p>
+        </div>
+
+        <div class="profile-detail">
+          <strong>🆔 Твой ID</strong>
+          <p id="chatikiMyId">${escapeHTML(id)}</p>
+          <button
+            id="copyMyIdBtn"
+            class="secondary-btn"
+            type="button"
+          >
+            📋 Скопировать ID
+          </button>
+        </div>
+
+        <div class="profile-detail">
+          <strong>📅 Дата регистрации</strong>
+          <p>
+            ${
+              currentProfile.created_at
+                ? escapeHTML(
+                    new Date(
+                      currentProfile.created_at
+                    ).toLocaleDateString("ru-RU")
+                  )
+                : "Не указана"
+            }
+          </p>
+        </div>
+
+        <button
+          id="profileLogoutBtn"
+          class="secondary-btn"
+          type="button"
+        >
+          Выйти из аккаунта
+        </button>
+      `;
+
+      $("copyMyIdBtn")?.addEventListener(
+        "click",
+        async () => {
+          try {
+            await navigator.clipboard.writeText(id);
+            notify("ID скопирован! 📋");
+          } catch {
+            notify("Не удалось скопировать ID.");
+          }
+        }
+      );
+
+      $("profileLogoutBtn")?.addEventListener(
+        "click",
+        logout
+      );
     }
 
     if ($("profileName")) {
@@ -307,12 +435,11 @@
     }
 
     if ($("profileEmail")) {
-      $("profileEmail").textContent =
-        currentUser?.email || "";
+      $("profileEmail").textContent = email;
     }
 
     if ($("profileId")) {
-      $("profileId").textContent = myIdentifier();
+      $("profileId").textContent = id;
     }
 
     if ($("avatar")) {
@@ -328,9 +455,9 @@
     }
   }
 
-  // =========================
-  // ЭКРАНЫ И НАВИГАЦИЯ
-  // =========================
+  // ==========================================
+  // ОСНОВНОЙ ЭКРАН
+  // ==========================================
 
   function showMainView() {
     if ($("authView")) {
@@ -341,22 +468,18 @@
       $("mainView").hidden = false;
     }
 
-    if ($("authScreen")) {
-      $("authScreen").hidden = true;
-    }
-
-    if ($("mainScreen")) {
-      $("mainScreen").hidden = false;
-    }
-
-    renderProfile();
     ensureMessengerUI();
+    renderProfile();
+
     showPanel("chatsPanel");
 
     refreshAll();
 
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(refreshAll, 5000);
+
+    refreshTimer = setInterval(() => {
+      refreshAll();
+    }, 7000);
   }
 
   function showPanel(panelId) {
@@ -390,24 +513,36 @@
     if (panelId === "friendsPanel") {
       refreshFriends();
     }
+
+    if (panelId === "profilePanel") {
+      renderProfile();
+    }
   }
+
+  // ==========================================
+  // ЭЛЕМЕНТЫ ЧАТА
+  // ==========================================
 
   function ensureMessengerUI() {
     const chatsPanel = $("chatsPanel");
 
-    if (chatsPanel && !$("chatMessages")) {
-      const area = document.createElement("div");
+    if (!chatsPanel) return;
 
-      area.id = "chatMessages";
-      area.className = "chat-messages";
+    if (!$("chatMessages")) {
+      const messages = document.createElement("div");
 
-      chatsPanel.appendChild(area);
+      messages.id = "chatMessages";
+      messages.className = "chat-messages";
+      messages.setAttribute("aria-live", "polite");
+
+      chatsPanel.appendChild(messages);
     }
 
-    if (chatsPanel && !$("messageInput")) {
+    if (!$("messageForm")) {
       const form = document.createElement("form");
 
       form.id = "messageForm";
+
       form.innerHTML = `
         <input
           id="messageInput"
@@ -417,7 +552,13 @@
           autocomplete="off"
           required
         >
-        <button type="submit">Отправить</button>
+
+        <button
+          type="submit"
+          class="primary-btn"
+        >
+          Отправить
+        </button>
       `;
 
       chatsPanel.appendChild(form);
@@ -426,649 +567,126 @@
     }
   }
 
-  // =========================
-  // ПОИСК ПОЛЬЗОВАТЕЛЕЙ
-  // =========================
+  // ==========================================
+  // ПОИСК ДРУГА ПО ID
+  // ==========================================
 
-  async function searchUsers() {
-    const input =
-      $("friendSearchInput") ||
-      $("searchFriendInput");
-
+  async function findFriend() {
+    const input = $("friendIdInput");
     const query = input?.value.trim() || "";
 
-    if (query.length < 3) {
-      notify(
-        "Введи минимум 3 символа для поиска."
-      );
+    if (!query) {
+      notify("Введи ID друга.");
+      return;
+    }
+
+    if (
+      query === currentUser.id ||
+      query === currentProfile?.friend_id
+    ) {
+      notify("Это твой собственный ID.");
       return;
     }
 
     try {
-      const { data, error } = await sb
+      if ($("friendMessage")) {
+        $("friendMessage").textContent = "";
+      }
+
+      if ($("friendResult")) {
+        $("friendResult").innerHTML =
+          "<p>🔎 Ищем пользователя...</p>";
+      }
+
+      let person = null;
+
+      // Сначала поиск по friend_id.
+      const first = await sb
         .from("profiles")
         .select("id, username, friend_id, avatar_url")
-        .ilike("username", `%${query}%`)
-        .neq("id", currentUser.id)
-        .limit(20);
+        .eq("friend_id", query)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (first.error) throw first.error;
 
-      renderSearchResults(data || []);
+      person = first.data;
 
-      if (!data?.length) {
-        notify("Пользователи не найдены.");
-      }
-    } catch (error) {
-      console.error("searchUsers:", error);
-
-      notify(
-        "Ошибка поиска: " + error.message,
-        "error"
-      );
-    }
-  }
-
-  function renderSearchResults(users) {
-    const container =
-      $("friendSearchResults") ||
-      $("searchResults") ||
-      $("friendsList");
-
-    if (!container) return;
-
-    container.innerHTML = users.map(user => `
-      <div class="user-card">
-        <div class="user-info">
-          <strong>${escapeHTML(user.username)}</strong>
-          <small>${escapeHTML(user.friend_id || "")}</small>
-        </div>
-        <button
-          type="button"
-          data-add-friend="${escapeHTML(user.id)}"
-        >
-          Добавить
-        </button>
-      </div>
-    `).join("");
-
-    container
-      .querySelectorAll("[data-add-friend]")
-      .forEach(button => {
-        button.addEventListener("click", () => {
-          sendFriendRequest(button.dataset.addFriend);
-        });
-      });
-  }
-
-  // =========================
-  // ДРУЗЬЯ И ЗАЯВКИ
-  // =========================
-
-  async function sendFriendRequest(targetUserId) {
-    if (!targetUserId || targetUserId === currentUser.id) {
-      notify("Нельзя добавить самого себя.");
-      return;
-    }
-
-    try {
-      const { error } = await sb
-        .from("friends")
-        .insert({
-          user_id: currentUser.id,
-          friend_user_id: targetUserId,
-          status: "pending"
-        });
-
-      if (error) throw error;
-
-      notify("Заявка в друзья отправлена!");
-      await refreshFriends();
-
-    } catch (error) {
-      console.error("sendFriendRequest:", error);
-
-      notify(
-        "Не удалось отправить заявку: " +
-        error.message,
-        "error"
-      );
-    }
-  }
-
-  async function refreshFriends() {
-    if (!currentUser) return;
-
-    const container = $("friendsList");
-
-    try {
-      const { data, error } = await sb
-        .from("friends")
-        .select(`
-          id,
-          user_id,
-          friend_user_id,
-          status,
-          created_at
-        `)
-        .or(
-          `user_id.eq.${currentUser.id},friend_user_id.eq.${currentUser.id}`
-        )
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const rows = data || [];
-      const userIds = [
-        ...new Set(
-          rows.map(row =>
-            row.user_id === currentUser.id
-              ? row.friend_user_id
-              : row.user_id
-          )
-        )
-      ];
-
-      let profiles = [];
-
-      if (userIds.length) {
-        const result = await sb
+      // Если friend_id не найден, пробуем UUID профиля.
+      if (!person) {
+        const second = await sb
           .from("profiles")
           .select("id, username, friend_id, avatar_url")
-          .in("id", userIds);
+          .eq("id", query)
+          .maybeSingle();
 
-        if (result.error) throw result.error;
+        if (second.error) {
+          /*
+            Если введённый ID не является UUID,
+            запрос по id может завершиться ошибкой.
+          */
+          if (
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+              .test(query)
+          ) {
+            throw new Error(
+              "Пользователь не найден. Проверь ID друга."
+            );
+          }
 
-        profiles = result.data || [];
-      }
-
-      const byId = new Map(
-        profiles.map(profile => [profile.id, profile])
-      );
-
-      if (!container) return;
-
-      container.innerHTML = rows.map(row => {
-        const otherId =
-          row.user_id === currentUser.id
-            ? row.friend_user_id
-            : row.user_id;
-
-        const person = byId.get(otherId);
-        const name = person?.username || "Пользователь";
-
-        const incoming =
-          row.friend_user_id === currentUser.id &&
-          row.status === "pending";
-
-        let buttons = "";
-
-        if (incoming) {
-          buttons = `
-            <button
-              type="button"
-              data-accept="${escapeHTML(row.id)}"
-            >Принять</button>
-            <button
-              type="button"
-              data-reject="${escapeHTML(row.id)}"
-            >Отклонить</button>
-          `;
-        } else if (row.status === "accepted") {
-          buttons = `
-            <button
-              type="button"
-              data-open-chat="${escapeHTML(otherId)}"
-            >Написать</button>
-          `;
+          throw second.error;
         }
 
-        return `
-          <div class="user-card">
-            <div class="user-info">
-              <strong>${escapeHTML(name)}</strong>
-              <small>${escapeHTML(row.status)}</small>
+        person = second.data;
+      }
+
+      if (!person) {
+        if ($("friendResult")) {
+          $("friendResult").innerHTML = `
+            <div class="empty-state">
+              <h3>😕 Пользователь не найден</h3>
+              <p>Проверь правильность ID.</p>
             </div>
-            <div class="user-actions">${buttons}</div>
-          </div>
-        `;
-      }).join("");
-
-      container
-        .querySelectorAll("[data-accept]")
-        .forEach(button => {
-          button.addEventListener("click", () =>
-            respondToFriendRequest(
-              button.dataset.accept,
-              true
-            )
-          );
-        });
-
-      container
-        .querySelectorAll("[data-reject]")
-        .forEach(button => {
-          button.addEventListener("click", () =>
-            respondToFriendRequest(
-              button.dataset.reject,
-              false
-            )
-          );
-        });
-
-      container
-        .querySelectorAll("[data-open-chat]")
-        .forEach(button => {
-          button.addEventListener("click", () =>
-            openDirectChat(button.dataset.openChat)
-          );
-        });
-
-    } catch (error) {
-      console.error("refreshFriends:", error);
-
-      if (container) {
-        container.textContent =
-          "Не удалось загрузить друзей: " +
-          error.message;
-      }
-    }
-  }
-
-  async function respondToFriendRequest(requestId, accept) {
-    try {
-      const { error } = await sb.rpc(
-        "respond_to_friend_request",
-        {
-          p_request_id: requestId,
-          p_accept: accept
+          `;
         }
-      );
 
-      if (error) throw error;
-
-      notify(
-        accept
-          ? "Заявка принята!"
-          : "Заявка отклонена."
-      );
-
-      await refreshFriends();
-
-      if (accept) {
-        await refreshChats();
-      }
-
-    } catch (error) {
-      console.error("respondToFriendRequest:", error);
-
-      notify(
-        "Ошибка обработки заявки: " +
-        error.message,
-        "error"
-      );
-    }
-  }
-
-  // =========================
-  // ЧАТЫ
-  // =========================
-
-  async function openDirectChat(targetFriendId) {
-    try {
-      const { data, error } = await sb.rpc(
-        "create_direct_chat",
-        {
-          target_friend_id: targetFriendId
-        }
-      );
-
-      if (error) throw error;
-
-      activeChatId = typeof data === "string"
-        ? data
-        : data?.chat_id || data?.id || null;
-
-      if (!activeChatId) {
-        throw new Error(
-          "Функция не вернула ID чата."
-        );
-      }
-
-      showPanel("chatsPanel");
-      await refreshChats();
-      await refreshMessages();
-
-    } catch (error) {
-      console.error("openDirectChat:", error);
-
-      notify(
-        "Не удалось открыть чат: " +
-        error.message,
-        "error"
-      );
-    }
-  }
-
-  async function refreshChats() {
-    if (!currentUser) return;
-
-    const container = $("chatList");
-
-    try {
-      const { data: memberships, error } = await sb
-        .from("chat_members")
-        .select("chat_id, joined_at")
-        .eq("user_id", currentUser.id)
-        .order("joined_at", { ascending: false });
-
-      if (error) throw error;
-
-      const chats = memberships || [];
-
-      if (!container) return;
-
-      if (!chats.length) {
-        container.innerHTML =
-          "<p>Пока нет чатов. Добавь друга и начни переписку!</p>";
         return;
       }
 
-      container.innerHTML = chats.map(chat => `
-        <button
-          type="button"
-          class="chat-item"
-          data-chat-id="${escapeHTML(chat.chat_id)}"
-        >
-          💬 Чат
-        </button>
-      `).join("");
-
-      container
-        .querySelectorAll("[data-chat-id]")
-        .forEach(button => {
-          button.addEventListener("click", async () => {
-            activeChatId = button.dataset.chatId;
-            await refreshMessages();
-          });
-        });
-
-      if (!activeChatId && chats.length) {
-        activeChatId = chats[0].chat_id;
-        await refreshMessages();
-      }
-
-    } catch (error) {
-      console.error("refreshChats:", error);
-
-      if (container) {
-        container.textContent =
-          "Ошибка загрузки чатов: " +
-          error.message;
-      }
-    }
-  }
-
-  // =========================
-  // СООБЩЕНИЯ
-  // =========================
-
-  async function refreshMessages() {
-    if (!currentUser || !activeChatId) return;
-
-    const container = $("chatMessages");
-
-    if (!container) return;
-
-    try {
-      const { data, error } = await sb
-        .from("messages")
-        .select(
-          "id, chat_id, sender_id, content, created_at, edited_at"
-        )
-        .eq("chat_id", activeChatId)
-        .order("created_at", { ascending: true })
-        .limit(200);
-
-      if (error) throw error;
-
-      const messages = data || [];
-
-      container.innerHTML = messages.map(message => {
-        const own =
-          message.sender_id === currentUser.id;
-
-        const time = message.created_at
-          ? new Date(message.created_at)
-              .toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit"
-              })
-          : "";
-
-        return `
-          <div class="message ${own ? "own" : ""}">
-            <div class="message-content">
-              ${escapeHTML(message.content)}
+      if ($("friendResult")) {
+        $("friendResult").innerHTML = `
+          <div class="user-card">
+            <div class="user-info">
+              <h3>${escapeHTML(person.username)}</h3>
+              <p>ID: ${escapeHTML(person.friend_id || person.id)}</p>
             </div>
-            <small>${escapeHTML(time)}</small>
+
+            <button
+              id="sendFriendRequestBtn"
+              class="primary-btn"
+              type="button"
+            >
+              💌 Добавить в друзья
+            </button>
           </div>
         `;
-      }).join("");
 
-      container.scrollTop = container.scrollHeight;
+        $("sendFriendRequestBtn")?.addEventListener(
+          "click",
+          () => sendFriendRequest(person.id)
+        );
+      }
 
     } catch (error) {
-      console.error("refreshMessages:", error);
+      showError(error, "Ошибка поиска");
 
-      container.textContent =
-        "Не удалось загрузить сообщения: " +
-        error.message;
+      if ($("friendResult")) {
+        $("friendResult").innerHTML = "";
+      }
     }
   }
 
-  async function sendMessage(event) {
-    event?.preventDefault();
+  // ==========================================
+  // ЗАЯВКА В ДРУЗЬЯ
+  // ==========================================
 
-    const input = $("messageInput");
-    const content = input?.value.trim();
-
-    if (!content) return;
-
-    if (!activeChatId) {
-      notify("Сначала открой чат.");
-      return;
-    }
-
-    try {
-      const { error } = await sb
-        .from("messages")
-        .insert({
-          chat_id: activeChatId,
-          sender_id: currentUser.id,
-          content
-        });
-
-      if (error) throw error;
-
-      input.value = "";
-
-      await refreshMessages();
-
-    } catch (error) {
-      console.error("sendMessage:", error);
-
-      notify(
-        "Не удалось отправить сообщение: " +
-        error.message,
-        "error"
-      );
-    }
-  }
-
-  // =========================
-  // ОБНОВЛЕНИЕ
-  // =========================
-
-  async function refreshAll() {
-    if (!currentUser) return;
-
-    try {
-      await Promise.allSettled([
-        refreshFriends(),
-        refreshChats()
-      ]);
-
-      if (activeChatId) {
-        await refreshMessages();
-      }
-    } catch (error) {
-      console.error("refreshAll:", error);
-    }
-  }
-
-  // =========================
-  // ВЫХОД
-  // =========================
-
-  async function logout() {
-    clearInterval(refreshTimer);
-
-    try {
-      const { error } = await sb.auth.signOut();
-
-      if (error) throw error;
-
-      currentUser = null;
-      currentProfile = null;
-      activeChatId = null;
-
-      if ($("mainView")) {
-        $("mainView").hidden = true;
-      }
-
-      if ($("authView")) {
-        $("authView").hidden = false;
-      }
-
-      if ($("mainScreen")) {
-        $("mainScreen").hidden = true;
-      }
-
-      if ($("authScreen")) {
-        $("authScreen").hidden = false;
-      }
-
-      setAuthMode("login");
-
-    } catch (error) {
-      console.error("logout:", error);
-
-      notify(
-        "Ошибка выхода: " + error.message,
-        "error"
-      );
-    }
-  }
-
-  // =========================
-  // ЗАПУСК И СОБЫТИЯ
-  // =========================
-
-  function bindEvents() {
-    $("loginTab")?.addEventListener(
-      "click",
-      () => setAuthMode("login")
-    );
-
-    $("registerTab")?.addEventListener(
-      "click",
-      () => setAuthMode("register")
-    );
-
-    $("submitAuth")?.addEventListener(
-      "click",
-      handleAuth
-    );
-
-    $("friendSearchBtn")?.addEventListener(
-      "click",
-      searchUsers
-    );
-
-    $("searchFriendBtn")?.addEventListener(
-      "click",
-      searchUsers
-    );
-
-    $("friendSearchInput")?.addEventListener(
-      "keydown",
-      event => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          searchUsers();
-        }
-      }
-    );
-
-    $("searchFriendInput")?.addEventListener(
-      "keydown",
-      event => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          searchUsers();
-        }
-      }
-    );
-
-    document
-      .querySelectorAll("[data-panel]")
-      .forEach(button => {
-        button.addEventListener("click", () => {
-          showPanel(button.dataset.panel);
-        });
-      });
-
-    $("logoutBtn")?.addEventListener(
-      "click",
-      logout
-    );
-
-    $("logoutButton")?.addEventListener(
-      "click",
-      logout
-    );
-
-    $("messageForm")?.addEventListener(
-      "submit",
-      sendMessage
-    );
-  }
-
-  async function start() {
-    bindEvents();
-
-    try {
-      initSupabase();
-      setAuthMode("login");
-      await restoreSession();
-    } catch (error) {
-      console.error("Chatiki startup:", error);
-
-      notify(
-        "Ошибка запуска Chatiki: " + error.message,
-        "error"
-      );
-    }
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener(
-      "DOMContentLoaded",
-      start,
-      { once: true }
-    );
-  } else {
-    start();
-  }
-})();
+ 
