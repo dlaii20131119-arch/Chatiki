@@ -2,7 +2,8 @@
   "use strict";
 
   // ==========================================
-  // CHATIKI — ТЕКСТОВЫЕ СООБЩЕНИЯ И ФОТО
+  // CHATIKI — МЕССЕНДЖЕР
+  // ТЕКСТОВЫЕ СООБЩЕНИЯ И ФОТОГРАФИИ
   // ==========================================
 
   let sb = null;
@@ -20,15 +21,9 @@
 
   const $ = (id) => document.getElementById(id);
 
-  function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[char]);
-  }
+  // ==========================================
+  // СООБЩЕНИЯ И ОШИБКИ
+  // ==========================================
 
   function showMessage(id, message, success = false) {
     const element = $(id);
@@ -39,7 +34,8 @@
   }
 
   function errorText(error) {
-    const message = error?.message || String(error || "Неизвестная ошибка");
+    const message =
+      error?.message || String(error || "Неизвестная ошибка");
 
     if (/Invalid login credentials/i.test(message)) {
       return "Неверная почта или пароль.";
@@ -79,8 +75,10 @@
   function initSupabase() {
     const config = window.CHATIKI_CONFIG;
 
-    if (!config?.SUPABASE_URL ||
-        !config?.SUPABASE_PUBLISHABLE_KEY) {
+    if (
+      !config?.SUPABASE_URL ||
+      !config?.SUPABASE_PUBLISHABLE_KEY
+    ) {
       throw new Error("Проверь настройки Supabase в config.js.");
     }
 
@@ -190,7 +188,10 @@
     }
 
     if (password.length < 6) {
-      showMessage("authMessage", "Пароль должен содержать минимум 6 символов.");
+      showMessage(
+        "authMessage",
+        "Пароль должен содержать минимум 6 символов."
+      );
       return;
     }
 
@@ -299,8 +300,10 @@
     } catch (error) {
       console.error("Ошибка загрузки профиля:", error);
 
-      $("setupNotice").textContent =
-        "Ошибка загрузки данных: " + errorText(error);
+      showMessage(
+        "setupNotice",
+        "Ошибка загрузки данных: " + errorText(error)
+      );
     }
 
     showPanel("chatsPanel");
@@ -351,7 +354,8 @@
     if (!allowed.includes(panelId)) return;
 
     allowed.forEach((id) => {
-      $(id).hidden = id !== panelId;
+      const panel = $(id);
+      if (panel) panel.hidden = id !== panelId;
     });
 
     document.querySelectorAll("[data-panel]").forEach((button) => {
@@ -379,8 +383,10 @@
       return;
     }
 
-    if (value === currentUser.id ||
-        value === currentProfile?.friend_id) {
+    if (
+      value === currentUser.id ||
+      value === currentProfile?.friend_id
+    ) {
       showMessage("friendMessage", "Это твой собственный ID.");
       return;
     }
@@ -397,8 +403,10 @@
 
       if (error) throw error;
 
-      if (!data &&
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+      if (!data && isUUID) {
         const result = await sb
           .from("profiles")
           .select("id, username, friend_id, role")
@@ -495,9 +503,12 @@
       list.id = "friendsList";
       list.className = "friends-list";
 
-      $("friendsPanel")
-        .querySelector(".chatiki-section")
-        .appendChild(list);
+      const section = $("friendsPanel")
+        ?.querySelector(".chatiki-section");
+
+      if (!section) return;
+
+      section.appendChild(list);
     }
 
     const { data, error } = await sb
@@ -509,7 +520,8 @@
       .order("created_at", { ascending: false });
 
     if (error) {
-      list.textContent = "Ошибка загрузки друзей: " + errorText(error);
+      list.textContent =
+        "Ошибка загрузки друзей: " + errorText(error);
       return;
     }
 
@@ -541,7 +553,8 @@
       card.className = "profile-detail";
 
       const title = document.createElement("h3");
-      title.textContent = "👤 " + (person?.username || "Пользователь");
+      title.textContent =
+        "👤 " + (person?.username || "Пользователь");
 
       const status = document.createElement("p");
 
@@ -584,7 +597,10 @@
         open.textContent = "💬 Написать";
 
         open.addEventListener("click", () =>
-          openDirectChat(otherId, person?.username || "Личный чат")
+          openDirectChat(
+            otherId,
+            person?.username || "Личный чат"
+          )
         );
 
         card.appendChild(open);
@@ -655,6 +671,7 @@
     if (!currentUser) return;
 
     const list = $("chatList");
+    if (!list) return;
 
     const { data, error } = await sb
       .from("chat_members")
@@ -663,7 +680,8 @@
       .order("joined_at", { ascending: false });
 
     if (error) {
-      list.textContent = "Ошибка загрузки чатов: " + errorText(error);
+      list.textContent =
+        "Ошибка загрузки чатов: " + errorText(error);
       return;
     }
 
@@ -684,7 +702,9 @@
       button.type = "button";
       button.className = "secondary-btn";
       button.textContent = "Найти друга";
-      button.addEventListener("click", () => showPanel("friendsPanel"));
+      button.addEventListener("click", () =>
+        showPanel("friendsPanel")
+      );
 
       empty.append(title, text, button);
       list.appendChild(empty);
@@ -730,80 +750,214 @@
       list.appendChild(button);
     }
 
-    if (activeChatId) await renderActiveChat();
+    if (activeChatId) {
+      await renderActiveChat();
+    }
   }
 
   // ==========================================
-  // ОКНО ПЕРЕПИСКИ
+  // ОКНО ПЕРЕПИСКИ — ИСПРАВЛЕННАЯ ВЕРСИЯ
   // ==========================================
 
   function ensureMessengerUI() {
     let box = $("activeChatBox");
-    if (box) return box;
 
-    box = document.createElement("section");
-    box.id = "activeChatBox";
-    box.className = "chatiki-section";
+    // Создаём окно, только если его ещё нет.
+    if (!box) {
+      box = document.createElement("section");
+      box.id = "activeChatBox";
+      box.className = "chatiki-section";
 
-    box.innerHTML = `
-      <h2 id="activeChatTitle">💬 Переписка</h2>
+      box.innerHTML = `
+        <h2 id="activeChatTitle">💬 Переписка</h2>
 
-      <div id="messageList" aria-live="polite"
-        style="max-height:55vh;overflow-y:auto;"></div>
+        <div id="messageList"
+          aria-live="polite"
+          style="max-height:55vh;overflow-y:auto;"></div>
 
-      <label for="messageInput">Сообщение</label>
-      <textarea id="messageInput"
-        maxlength="5000"
-        rows="3"
-        placeholder="Напиши сообщение..."></textarea>
+        <label for="messageInput">Сообщение</label>
 
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button id="sendMessageBtn"
-          class="primary-btn"
-          type="button">Отправить 💌</button>
+        <textarea
+          id="messageInput"
+          maxlength="5000"
+          rows="3"
+          placeholder="Напиши сообщение..."></textarea>
 
-        <button id="choosePhotoBtn"
-          class="secondary-btn"
-          type="button">📷 Фото</button>
-      </div>
+        <div id="chatControls"
+          style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
 
-      <input id="photoInput"
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        hidden>
+          <button id="sendMessageBtn"
+            class="primary-btn"
+            type="button">Отправить 💌</button>
 
-      <p id="photoStatus" role="status" aria-live="polite"></p>
-      <p id="chatMessage" role="status" aria-live="polite"></p>
-    `;
+          <button id="choosePhotoBtn"
+            class="secondary-btn"
+            type="button">📷 Фото</button>
+        </div>
 
-    $("chatsPanel").appendChild(box);
+        <input id="photoInput"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          hidden>
 
-    $("sendMessageBtn").addEventListener("click", sendMessage);
+        <p id="photoStatus"
+          role="status"
+          aria-live="polite"></p>
 
-    $("messageInput").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
+        <p id="chatMessage"
+          role="status"
+          aria-live="polite"></p>
+      `;
 
-    $("choosePhotoBtn").addEventListener("click", () => {
-      if (!activeChatId) {
-        showMessage("photoStatus", "Сначала открой личный чат.");
-        return;
-      }
+      $("chatsPanel").appendChild(box);
+    }
 
-      $("photoInput").click();
-    });
+    // Если старое окно уже было создано, не выходим сразу.
+    // Проверяем и восстанавливаем все необходимые элементы.
 
-    $("photoInput").addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
+    let controls = $("chatControls");
 
-      if (file) await sendPhoto(file);
+    if (!controls) {
+      controls = document.createElement("div");
+      controls.id = "chatControls";
+      controls.style.cssText =
+        "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;";
+      box.appendChild(controls);
+    }
 
-      // Позволяет повторно выбрать тот же файл.
-      event.target.value = "";
-    });
+    let sendButton = $("sendMessageBtn");
+
+    if (!sendButton) {
+      sendButton = document.createElement("button");
+      sendButton.id = "sendMessageBtn";
+      sendButton.className = "primary-btn";
+      sendButton.type = "button";
+      sendButton.textContent = "Отправить 💌";
+      controls.appendChild(sendButton);
+    } else if (sendButton.parentElement !== controls) {
+      controls.appendChild(sendButton);
+    }
+
+    let photoButton = $("choosePhotoBtn");
+
+    if (!photoButton) {
+      photoButton = document.createElement("button");
+      photoButton.id = "choosePhotoBtn";
+      photoButton.className = "secondary-btn";
+      photoButton.type = "button";
+      photoButton.textContent = "📷 Фото";
+      controls.appendChild(photoButton);
+    } else if (photoButton.parentElement !== controls) {
+      controls.appendChild(photoButton);
+    }
+
+    let photoInput = $("photoInput");
+
+    if (!photoInput) {
+      photoInput = document.createElement("input");
+      photoInput.id = "photoInput";
+      photoInput.type = "file";
+      photoInput.accept =
+        "image/jpeg,image/png,image/webp,image/gif";
+      photoInput.hidden = true;
+      box.appendChild(photoInput);
+    }
+
+    if (!$("messageList")) {
+      const list = document.createElement("div");
+      list.id = "messageList";
+      list.setAttribute("aria-live", "polite");
+      list.style.cssText = "max-height:55vh;overflow-y:auto;";
+      box.insertBefore(list, controls);
+    }
+
+    if (!$("messageInput")) {
+      const label = document.createElement("label");
+      label.htmlFor = "messageInput";
+      label.textContent = "Сообщение";
+
+      const input = document.createElement("textarea");
+      input.id = "messageInput";
+      input.maxLength = 5000;
+      input.rows = 3;
+      input.placeholder = "Напиши сообщение...";
+
+      box.insertBefore(label, controls);
+      box.insertBefore(input, controls);
+    }
+
+    if (!$("activeChatTitle")) {
+      const title = document.createElement("h2");
+      title.id = "activeChatTitle";
+      title.textContent = "💬 Переписка";
+      box.prepend(title);
+    }
+
+    if (!$("photoStatus")) {
+      const status = document.createElement("p");
+      status.id = "photoStatus";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      box.appendChild(status);
+    }
+
+    if (!$("chatMessage")) {
+      const status = document.createElement("p");
+      status.id = "chatMessage";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      box.appendChild(status);
+    }
+
+    // Подключаем обработчики только один раз.
+
+    if (!sendButton.dataset.bound) {
+      sendButton.dataset.bound = "true";
+      sendButton.addEventListener("click", sendMessage);
+    }
+
+    const messageInput = $("messageInput");
+
+    if (messageInput && !messageInput.dataset.bound) {
+      messageInput.dataset.bound = "true";
+
+      messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          sendMessage();
+        }
+      });
+    }
+
+    if (!photoButton.dataset.bound) {
+      photoButton.dataset.bound = "true";
+
+      photoButton.addEventListener("click", () => {
+        if (!activeChatId) {
+          showMessage(
+            "photoStatus",
+            "Сначала открой личный чат."
+          );
+          return;
+        }
+
+        $("photoInput").click();
+      });
+    }
+
+    if (!photoInput.dataset.bound) {
+      photoInput.dataset.bound = "true";
+
+      photoInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+
+        if (file) {
+          await sendPhoto(file);
+        }
+
+        event.target.value = "";
+      });
+    }
 
     return box;
   }
@@ -823,14 +977,12 @@
   // ==========================================
 
   function isAllowedPhoto(file) {
-    const allowedTypes = [
+    return [
       "image/jpeg",
       "image/png",
       "image/webp",
       "image/gif"
-    ];
-
-    return allowedTypes.includes(file.type);
+    ].includes(file.type);
   }
 
   async function sendPhoto(file) {
@@ -856,6 +1008,8 @@
       );
       return;
     }
+
+    ensureMessengerUI();
 
     photoBusy = true;
     $("choosePhotoBtn").disabled = true;
@@ -894,8 +1048,10 @@
         });
 
       if (messageError) {
-        // Если сообщение не сохранилось, удаляем загруженный файл.
-        await sb.storage.from(PHOTO_BUCKET).remove([uploadedPath]);
+        await sb.storage
+          .from(PHOTO_BUCKET)
+          .remove([uploadedPath]);
+
         throw messageError;
       }
 
@@ -907,7 +1063,9 @@
       showMessage("photoStatus", errorText(error));
     } finally {
       photoBusy = false;
-      $("choosePhotoBtn").disabled = false;
+
+      const button = $("choosePhotoBtn");
+      if (button) button.disabled = false;
     }
   }
 
@@ -948,7 +1106,8 @@
 
     if (!data?.length) {
       const empty = document.createElement("p");
-      empty.textContent = "Начни переписку! Напиши первое сообщение 💜";
+      empty.textContent =
+        "Начни переписку! Напиши первое сообщение 💜";
       list.appendChild(empty);
       return;
     }
@@ -996,10 +1155,10 @@
         });
 
         image.addEventListener("click", () => {
-          window.open(image.src, "_blank", "noopener,noreferrer");
+          if (image.src) {
+            window.open(image.src, "_blank", "noopener,noreferrer");
+          }
         });
-
-        image.src = "";
 
         const loading = document.createElement("p");
         loading.textContent = "Загружаем фото...";
@@ -1026,7 +1185,8 @@
       }
 
       const time = document.createElement("small");
-      time.textContent = new Date(message.created_at).toLocaleString();
+      time.textContent =
+        new Date(message.created_at).toLocaleString();
 
       item.appendChild(time);
       list.appendChild(item);
@@ -1050,7 +1210,8 @@
 
     if (!content) return;
 
-    $("sendMessageBtn").disabled = true;
+    const button = $("sendMessageBtn");
+    button.disabled = true;
 
     try {
       const { error } = await sb.from("messages").insert({
@@ -1068,7 +1229,7 @@
     } catch (error) {
       showMessage("chatMessage", errorText(error));
     } finally {
-      $("sendMessageBtn").disabled = false;
+      button.disabled = false;
     }
   }
 
@@ -1125,8 +1286,13 @@
   // ==========================================
 
   function wireEvents() {
-    $("loginTab").addEventListener("click", () => setAuthMode("login"));
-    $("registerTab").addEventListener("click", () => setAuthMode("register"));
+    $("loginTab").addEventListener("click", () =>
+      setAuthMode("login")
+    );
+
+    $("registerTab").addEventListener("click", () =>
+      setAuthMode("register")
+    );
 
     $("submitAuth").addEventListener("click", () => {
       if (busy) return;
@@ -1186,10 +1352,12 @@
       setAuthMode("login");
     } catch (error) {
       console.error("Ошибка подключения кнопок:", error);
+
       showMessage(
         "authMessage",
         "Не удалось подключить кнопки: " + errorText(error)
       );
+
       return;
     }
 
