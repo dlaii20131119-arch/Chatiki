@@ -1,6 +1,8 @@
 <!doctype html>
+
 <html lang="ru">
 <head>
+  <meta name="yandex-verification" content="f7667b5765e4fb5d" />
   <meta charset="utf-8">
   <meta
     name="viewport"
@@ -8,230 +10,218 @@
   >
   <meta name="theme-color" content="#100d18">
   <meta name="description" content="Chatiki — мессенджер для друзей">
-  <title>Chatiki — мессенджер</title>
+  <title>Chatiki — мессенджер</title>  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">  <script src="config.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>  <script src="app.js" defer></script></head><body>
+  <div class="app-shell"><header class="topbar">
+  <div class="brand">
+    <div class="brand-icon">💬</div>
+    <span>Chatiki</span>
+  </div>
+  <span class="subtitle">Твои друзья рядом 💜</span>
+</header>
 
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="style.css">
+<!-- Авторизация -->
+<main id="authView">
+  <section class="auth-card">
+    <h1>Добро пожаловать!</h1>
+    <p class="subtitle">Общайся с друзьями в Chatiki</p>
 
-  <script src="config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js" defer></script>
-</head>
+    <div class="auth-tabs">
+      <button id="loginTab" class="active" type="button">
+        Войти
+      </button>
+      <button id="registerTab" type="button">
+        Регистрация
+      </button>
+    </div>
 
-<body>
-  <div class="app-shell">
+    <div id="loginBox">
+      <label for="emailInput">Электронная почта</label>
+      <input
+        id="emailInput"
+        type="email"
+        placeholder="you@example.com"
+        autocomplete="email"
+        required
+      >
 
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-icon">💬</div>
-        <span>Chatiki</span>
-      </div>
-      <span class="subtitle">Твои друзья рядом 💜</span>
-    </header>
+      <label for="passwordInput">Пароль</label>
+      <input
+        id="passwordInput"
+        type="password"
+        placeholder="Твой пароль"
+        autocomplete="current-password"
+        required
+      >
+    </div>
 
-    <!-- Авторизация -->
-    <main id="authView">
-      <section class="auth-card">
-        <h1>Добро пожаловать!</h1>
-        <p class="subtitle">Общайся с друзьями в Chatiki</p>
+    <div id="registerBox" hidden>
+      <label for="usernameInput">Имя пользователя</label>
+      <input
+        id="usernameInput"
+        type="text"
+        placeholder="Например, Player_123"
+        minlength="3"
+        maxlength="24"
+        autocomplete="username"
+      >
+    </div>
 
-        <div class="auth-tabs">
-          <button id="loginTab" class="active" type="button">
-            Войти
-          </button>
-          <button id="registerTab" type="button">
-            Регистрация
-          </button>
-        </div>
+    <button id="submitAuth" class="primary-btn" type="button">
+      Войти
+    </button>
 
-        <div id="loginBox">
-          <label for="emailInput">Электронная почта</label>
-          <input
-            id="emailInput"
-            type="email"
-            placeholder="you@example.com"
-            autocomplete="email"
-            required
-          >
+    <p id="authMessage" role="status" aria-live="polite"></p>
+  </section>
 
-          <label for="passwordInput">Пароль</label>
-          <input
-            id="passwordInput"
-            type="password"
-            placeholder="Твой пароль"
-            autocomplete="current-password"
-            required
-          >
-        </div>
+  <section class="info-card">
+    <h3>✨ Что есть в Chatiki?</h3>
+    <p>👥 Поиск друзей по ID</p>
+    <p>💌 Заявки в друзья</p>
+    <p>💬 Личные переписки</p>
+    <p>🔐 Аккаунт и профиль</p>
+  </section>
+</main>
 
-        <div id="registerBox" hidden>
-          <label for="usernameInput">Имя пользователя</label>
-          <input
-            id="usernameInput"
-            type="text"
-            placeholder="Например, Player_123"
-            minlength="3"
-            maxlength="24"
-            autocomplete="username"
-          >
-        </div>
+<!-- Основной экран -->
+<main id="mainView" hidden>
+  <section class="card">
+    <h1>Привет, <span id="welcomeName">друг</span>! 👋</h1>
+    <p class="subtitle">Рады видеть тебя в Chatiki.</p>
+    <p id="setupNotice" class="subtitle"></p>
+  </section>
 
-        <button id="submitAuth" class="primary-btn" type="button">
-          Войти
-        </button>
+  <!-- Навигация -->
+  <nav class="bottom-nav" aria-label="Основная навигация">
+    <button
+      type="button"
+      class="active"
+      data-panel="chatsPanel"
+    >
+      💬 Чаты
+    </button>
 
-        <p id="authMessage" role="status" aria-live="polite"></p>
-      </section>
+    <button
+      type="button"
+      data-panel="friendsPanel"
+    >
+      👥 Друзья
+    </button>
 
-      <section class="info-card">
-        <h3>✨ Что есть в Chatiki?</h3>
-        <p>👥 Поиск друзей по ID</p>
-        <p>💌 Заявки в друзья</p>
-        <p>💬 Личные переписки</p>
-        <p>🔐 Аккаунт и профиль</p>
-      </section>
-    </main>
+    <button
+      type="button"
+      data-panel="profilePanel"
+    >
+      👤 Профиль
+    </button>
+  </nav>
 
-    <!-- Основной экран -->
-    <main id="mainView" hidden>
-      <section class="card">
-        <h1>Привет, <span id="welcomeName">друг</span>! 👋</h1>
-        <p class="subtitle">Рады видеть тебя в Chatiki.</p>
-        <p id="setupNotice" class="subtitle"></p>
-      </section>
+  <!-- Чаты -->
+  <section id="chatsPanel">
+    <section class="chatiki-section">
+      <h2>💬 Мои чаты</h2>
 
-      <!-- Навигация -->
-      <nav class="bottom-nav" aria-label="Основная навигация">
-        <button
-          type="button"
-          class="active"
-          data-panel="chatsPanel"
-        >
-          💬 Чаты
-        </button>
-
-        <button
-          type="button"
-          data-panel="friendsPanel"
-        >
-          👥 Друзья
-        </button>
-
-        <button
-          type="button"
-          data-panel="profilePanel"
-        >
-          👤 Профиль
-        </button>
-      </nav>
-
-      <!-- Чаты -->
-      <section id="chatsPanel">
-        <section class="chatiki-section">
-          <h2>💬 Мои чаты</h2>
-
-          <div id="chatList">
-            <div class="empty-state">
-              <div class="empty-icon">✉️</div>
-              <h3>Тут будет уютно</h3>
-              <p>
-                Добавь друга и начни общаться с ним после принятия заявки.
-              </p>
-              <button
-                type="button"
-                class="secondary-btn"
-                data-go="friendsPanel"
-              >
-                Найти друга
-              </button>
-            </div>
-          </div>
-        </section>
-      </section>
-
-      <!-- Друзья -->
-      <section id="friendsPanel" hidden>
-        <section class="chatiki-section">
-          <h2>👥 Найти друга</h2>
-          <p class="subtitle">
-            Введи ID пользователя, которого хочешь добавить.
-          </p>
-
-          <label for="friendIdInput">ID друга</label>
-          <input
-            id="friendIdInput"
-            type="text"
-            placeholder="Введи ID пользователя"
-            autocomplete="off"
-          >
-
-          <button
-            id="findFriendBtn"
-            class="primary-btn"
-            type="button"
-          >
-            🔎 Найти
-          </button>
-
-          <p id="friendMessage" role="status" aria-live="polite"></p>
-
-          <div id="friendResult"></div>
-        </section>
-
-        <section class="info-card">
-          <h3>💌 Как добавить друга?</h3>
+      <div id="chatList">
+        <div class="empty-state">
+          <div class="empty-icon">✉️</div>
+          <h3>Тут будет уютно</h3>
           <p>
-            1. Узнай ID друга
-                      </p>
-          <p>2. Передай свой ID другу.</p>
-          <p>3. Друг найдёт тебя через поиск.</p>
-          <p>4. Отправь заявку и дождись её принятия.</p>
-        </section>
-      </section>
-
-      <!-- Профиль пользователя -->
-      <section id="profilePanel" hidden>
-        <section class="chatiki-section">
-          <h2>👤 Мой профиль</h2>
-
-          <div id="chatikiProfileCard">
-            <div class="profile-avatar">👤</div>
-            <h2 id="profileName">Загрузка...</h2>
-
-            <div class="profile-detail">
-              <strong>📧 Электронная почта</strong>
-              <p id="profileEmail">Загрузка...</p>
-            </div>
-
-            <div class="profile-detail">
-              <strong>🆔 Твой ID</strong>
-              <p id="profileId">Загрузка...</p>
-              <button
-                id="copyMyIdBtn"
-                class="secondary-btn"
-                type="button"
-              >
-                📋 Скопировать ID
-              </button>
-            </div>
-
-            <div class="profile-detail">
-              <strong>🛡️ Статус аккаунта</strong>
-              <p id="roleBadge">Пользователь</p>
-            </div>
-          </div>
-
+            Добавь друга и начни общаться с ним после принятия заявки.
+          </p>
           <button
-            id="profileLogoutBtn"
+            type="button"
+            class="secondary-btn"
+            data-go="friendsPanel"
+          >
+            Найти друга
+          </button>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <!-- Друзья -->
+  <section id="friendsPanel" hidden>
+    <section class="chatiki-section">
+      <h2>👥 Найти друга</h2>
+      <p class="subtitle">
+        Введи ID пользователя, которого хочешь добавить.
+      </p>
+
+      <label for="friendIdInput">ID друга</label>
+      <input
+        id="friendIdInput"
+        type="text"
+        placeholder="Введи ID пользователя"
+        autocomplete="off"
+      >
+
+      <button
+        id="findFriendBtn"
+        class="primary-btn"
+        type="button"
+      >
+        🔎 Найти
+      </button>
+
+      <p id="friendMessage" role="status" aria-live="polite"></p>
+
+      <div id="friendResult"></div>
+    </section>
+
+    <section class="info-card">
+      <h3>💌 Как добавить друга?</h3>
+      <p>1. Узнай ID друга.</p>
+      <p>2. Передай свой ID другу.</p>
+      <p>3. Друг найдёт тебя через поиск.</p>
+      <p>4. Отправь заявку и дождись её принятия.</p>
+    </section>
+  </section>
+
+  <!-- Профиль пользователя -->
+  <section id="profilePanel" hidden>
+    <section class="chatiki-section">
+      <h2>👤 Мой профиль</h2>
+
+      <div id="chatikiProfileCard">
+        <div class="profile-avatar">👤</div>
+        <h2 id="profileName">Загрузка...</h2>
+
+        <div class="profile-detail">
+          <strong>📧 Электронная почта</strong>
+          <p id="profileEmail">Загрузка...</p>
+        </div>
+
+        <div class="profile-detail">
+          <strong>🆔 Твой ID</strong>
+          <p id="profileId">Загрузка...</p>
+          <button
+            id="copyMyIdBtn"
             class="secondary-btn"
             type="button"
           >
-            🚪 Выйти из аккаунта
+            📋 Скопировать ID
           </button>
-        </section>
-      </section>
+        </div>
 
-    </main>
+        <div class="profile-detail">
+          <strong>🛡️ Статус аккаунта</strong>
+          <p id="roleBadge">Пользователь</p>
+        </div>
+      </div>
+
+      <button
+        id="profileLogoutBtn"
+        class="secondary-btn"
+        type="button"
+      >
+        🚪 Выйти из аккаунта
+      </button>
+    </section>
+  </section>
+
+</main>
+
   </div>
 </body>
 </html>
