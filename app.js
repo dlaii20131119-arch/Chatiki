@@ -1,432 +1,247 @@
 (() => {
   "use strict";
 
-  // ==========================================
-  // CHATIKI — МЕССЕНДЖЕР
-  // ТЕКСТ, ФОТОГРАФИИ И СТАТУСЫ ДРУЗЕЙ
-  // ==========================================
+  // =========================================
+  // PVZ MARKET
+  // Основной JavaScript приложения
+  // =========================================
 
   let sb = null;
   let currentUser = null;
   let currentProfile = null;
-  let activeChatId = null;
-  let activeChatName = "";
+  let products = [];
   let refreshTimer = null;
-  let presenceTimer = null;
-  let busy = false;
-  let photoBusy = false;
-  let presenceBusy = false;
 
-  const PHOTO_BUCKET = "chat-photos";
-  const MAX_PHOTO_SIZE = 8 * 1024 * 1024;
-  const PHOTO_PREFIX = "CHATIKI_PHOTO:";
+  const $ = id => document.getElementById(id);
 
-  // Считаем пользователя онлайн, если активность
-  // обновлялась в течение последних 60 секунд.
-  const ONLINE_TIMEOUT = 60 * 1000;
-  const PRESENCE_INTERVAL = 20 * 1000;
+  // =========================================
+  // СООБЩЕНИЯ
+  // =========================================
 
-  const $ = (id) => document.getElementById(id);
+  function message(id, text, error = false) {
+    const el = $(id);
+    if (!el) return;
 
-  // ==========================================
-  // СООБЩЕНИЯ И ОШИБКИ
-  // ==========================================
-
-  function showMessage(id, message, success = false) {
-    const element = $(id);
-    if (!element) return;
-
-    element.textContent = message;
-    element.style.color = success ? "#36b37e" : "#ff7373";
+    el.textContent = text;
+    el.style.color = error ? "#dc2626" : "#16a34a";
   }
 
-  function errorText(error) {
-    const message =
-      error?.message || String(error || "Неизвестная ошибка");
-
-    if (/Invalid login credentials/i.test(message)) {
-      return "Неверная почта или пароль.";
-    }
-
-    if (/Email not confirmed/i.test(message)) {
-      return "Подтверди почту или проверь настройки Supabase.";
-    }
-
-    if (/User already registered/i.test(message)) {
-      return "Этот email уже зарегистрирован. Попробуй войти.";
-    }
-
-    if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-      return "Нет подключения к Supabase. Проверь интернет и config.js.";
-    }
-
-    if (/infinite recursion/i.test(message)) {
-      return "Ошибка политик доступа RLS в Supabase.";
-    }
-
-    if (/row-level security|permission denied|not allowed/i.test(message)) {
-      return "Нет доступа. Проверь политики доступа Supabase.";
-    }
-
-    if (/Payload too large|exceeded the maximum allowed size/i.test(message)) {
-      return "Фотография слишком большая. Выбери фото до 8 МБ.";
-    }
-
-    return message;
+  function show(el, visible = true) {
+    if (el) el.style.display = visible ? "" : "none";
   }
 
-  // ==========================================
-  // SUPABASE
-  // ==========================================
-
-  function initSupabase() {
-    const config = window.CHATIKI_CONFIG;
-
-    if (
-      !config?.SUPABASE_URL ||
-      !config?.SUPABASE_PUBLISHABLE_KEY
-    ) {
-      throw new Error("Проверь настройки Supabase в config.js.");
-    }
-
-    if (!window.supabase?.createClient) {
-      throw new Error("Библиотека Supabase не загрузилась.");
-    }
-
-    sb = window.supabase.createClient(
-      config.SUPABASE_URL,
-      config.SUPABASE_PUBLISHABLE_KEY
-    );
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    })[char]);
   }
 
-  // ==========================================
-  // СТАТУСЫ ОНЛАЙН / ОФЛАЙН
-  // ==========================================
-
-  async function updateMyPresence(isOnline = true) {
-    if (!sb || !currentUser || presenceBusy) return;
-
-    presenceBusy = true;
-
-    try {
-      const { error } = await sb
-        .from("user_presence")
-        .upsert(
-          {
-            user_id: currentUser.id,
-            is_online: isOnline,
-            last_seen: new Date().toISOString()
-          },
-          {
-            onConflict: "user_id"
-          }
-        );
-
-      if (error) throw error;
-    } catch (error) {
-      console.error("Не удалось обновить статус:", error);
-    } finally {
-      presenceBusy = false;
-    }
+  function formatPrice(value) {
+    return Number(value).toLocaleString("ru-RU", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
   }
 
-  function startPresence() {
-    stopPresence();
+  // =========================================
+  // ИНИЦИАЛИЗАЦИЯ SUPABASE
+  // =========================================
 
-    if (!currentUser) return;
+  function initializeSupabase() {
+    const config =
+      window.PVZ_MARKET_CONFIG ||
+      window.CHATIKI_CONFIG;
 
-    // Сразу устанавливаем статус онлайн.
-    updateMyPresence(true);
-
-    // Регулярно обновляем время активности.
-    presenceTimer = setInterval(() => {
-      if (currentUser && document.visibilityState === "visible") {
-        updateMyPresence(true);
-      }
-    }, PRESENCE_INTERVAL);
-  }
-
-  function stopPresence() {
-    if (presenceTimer) {
-      clearInterval(presenceTimer);
-      presenceTimer = null;
-    }
-  }
-
-  async function markOffline() {
-    if (!sb || !currentUser) return;
-
-    try {
-      const { error } = await sb
-        .from("user_presence")
-        .upsert(
-          {
-            user_id: currentUser.id,
-            is_online: false,
-            last_seen: new Date().toISOString()
-          },
-          {
-            onConflict: "user_id"
-          }
-        );
-
-      if (error) {
-        console.error("Не удалось установить офлайн:", error);
-      }
-    } catch (error) {
-      console.error("Ошибка статуса офлайн:", error);
-    }
-  }
-
-  function isActuallyOnline(presence) {
-    if (!presence || !presence.is_online || !presence.last_seen) {
+    if (!config) {
+      alert("Не найден config.js");
       return false;
     }
 
-    const lastSeen = new Date(presence.last_seen).getTime();
+    if (!window.supabase) {
+      alert("Не загружена библиотека Supabase");
+      return false;
+    }
 
-    if (!Number.isFinite(lastSeen)) return false;
+    const url = config.SUPABASE_URL;
+    const key = config.SUPABASE_PUBLISHABLE_KEY;
 
-    return Date.now() - lastSeen <= ONLINE_TIMEOUT;
+    if (!url || !key) {
+      alert("Проверь настройки Supabase в config.js");
+      return false;
+    }
+
+    sb = window.supabase.createClient(url, key);
+
+    return true;
   }
 
-  function formatLastSeen(presence) {
-    if (!presence?.last_seen) {
-      return "Не в сети";
-    }
+  // =========================================
+  // АВТОРИЗАЦИЯ
+  // =========================================
 
-    const lastSeen = new Date(presence.last_seen);
-    const timestamp = lastSeen.getTime();
-
-    if (!Number.isFinite(timestamp)) {
-      return "Не в сети";
-    }
-
-    const age = Date.now() - timestamp;
-
-    if (age < 60 * 1000) {
-      return "Был(а) недавно";
-    }
-
-    if (age < 60 * 60 * 1000) {
-      const minutes = Math.floor(age / (60 * 1000));
-      return `Был(а) ${minutes} мин. назад`;
-    }
-
-    if (age < 24 * 60 * 60 * 1000) {
-      return "Был(а) сегодня, в " +
-        lastSeen.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit"
-        });
-    }
-
-    return "Был(а) " +
-      lastSeen.toLocaleDateString([], {
-        day: "2-digit",
-        month: "2-digit"
-      });
+  function usernameToEmail(username) {
+    return username.toLowerCase() + "@pvz-market.example.com";
   }
 
-  function createPresenceElement(presence) {
-    const online = isActuallyOnline(presence);
+  function showLogin() {
+    show($("loginBox"), true);
+    show($("registerBox"), false);
 
-    const row = document.createElement("p");
-    row.className = "chatiki-presence";
-    row.style.cssText =
-      "display:flex;align-items:center;gap:7px;" +
-      "margin:5px 0 10px;font-size:13px;";
+    $("loginTab")?.classList.add("active");
+    $("registerTab")?.classList.remove("active");
 
-    const dot = document.createElement("span");
-    dot.setAttribute("aria-hidden", "true");
-    dot.style.cssText =
-      "display:inline-block;width:9px;height:9px;" +
-      "min-width:9px;border-radius:50%;" +
-      `background:${online ? "#36d67e" : "#8b8795"};`;
-
-    const label = document.createElement("span");
-
-    label.textContent = online
-      ? "В сети"
-      : formatLastSeen(presence);
-
-    label.style.color = online ? "#36d67e" : "#aaa5b5";
-
-    row.append(dot, label);
-
-    return row;
+    message("authMessage", "");
   }
 
-  async function getPresenceForUsers(userIds) {
-    const result = new Map();
+  function showRegister() {
+    show($("loginBox"), false);
+    show($("registerBox"), true);
 
-    const uniqueIds = [...new Set(
-      (userIds || []).filter(Boolean)
-    )];
+    $("loginTab")?.classList.remove("active");
+    $("registerTab")?.classList.add("active");
 
-    if (!uniqueIds.length) return result;
+    message("authMessage", "");
+  }
 
-    const { data, error } = await sb
-      .from("user_presence")
-      .select("user_id, is_online, last_seen")
-      .in("user_id", uniqueIds);
+  async function register() {
+    const username = $("registerUsername")?.value.trim();
+    const password = $("registerPassword")?.value;
+    const displayName =
+      $("registerName")?.value.trim() || username;
 
-    if (error) {
-      console.error("Не удалось загрузить статусы:", error);
-      return result;
+    if (!username || !password) {
+      message("authMessage", "Заполни логин и пароль", true);
+      return;
     }
 
-    for (const item of data || []) {
-      result.set(item.user_id, item);
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
+      message(
+        "authMessage",
+        "Логин: 3–24 символа, только буквы, цифры и _",
+        true
+      );
+      return;
     }
 
-    return result;
-  }
-
-  // ==========================================
-  // ВХОД И РЕГИСТРАЦИЯ
-  // ==========================================
-
-  function setAuthMode(mode) {
-    const registering = mode === "register";
-
-    $("loginBox").hidden = false;
-    $("registerBox").hidden = !registering;
-
-    $("loginTab").classList.toggle("active", !registering);
-    $("registerTab").classList.toggle("active", registering);
-
-    $("submitAuth").textContent = registering
-      ? "Создать аккаунт"
-      : "Войти";
-
-    $("passwordInput").autocomplete = registering
-      ? "new-password"
-      : "current-password";
-
-    showMessage("authMessage", "");
-  }
-
-  function setBusy(value) {
-    busy = value;
+    if (password.length < 6) {
+      message("authMessage", "Пароль должен быть не короче 6 символов", true);
+      return;
+    }
 
     const button = $("submitAuth");
-    if (!button) return;
+    if (button) button.disabled = true;
 
-    button.disabled = value;
+    message("authMessage", "Создаём аккаунт...");
 
-    if (value) {
-      button.textContent = "Подожди...";
-    } else {
-      button.textContent = $("registerBox").hidden
-        ? "Войти"
-        : "Создать аккаунт";
+    try {
+      const { data, error } = await sb.auth.signUp({
+        email: usernameToEmail(username),
+        password,
+        options: {
+          data: {
+            username: username,
+            display_name: displayName
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (!data.session) {
+        message(
+          "authMessage",
+          "Аккаунт создан. Теперь войди в него."
+        );
+        showLogin();
+        return;
+      }
+
+      currentUser = data.user;
+
+      await loadProfile();
+      await enterApplication();
+
+    } catch (error) {
+      console.error(error);
+
+      message(
+        "authMessage",
+        error.message || "Ошибка регистрации",
+        true
+      );
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
   async function login() {
-    if (busy) return;
+    const username = $("loginUsername")?.value.trim();
+    const password = $("loginPassword")?.value;
 
-    const email = $("emailInput").value.trim();
-    const password = $("passwordInput").value;
-
-    if (!email || !password) {
-      showMessage("authMessage", "Введи почту и пароль.");
+    if (!username || !password) {
+      message("authMessage", "Заполни логин и пароль", true);
       return;
     }
 
-    setBusy(true);
-    showMessage("authMessage", "Подключаемся к аккаунту...", true);
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
+      message("authMessage", "Неверный формат логина", true);
+      return;
+    }
+
+    const button = $("submitAuth");
+    if (button) button.disabled = true;
+
+    message("authMessage", "Входим...");
 
     try {
-      if (!sb) initSupabase();
-
       const { data, error } = await sb.auth.signInWithPassword({
-        email,
+        email: usernameToEmail(username),
         password
       });
 
       if (error) throw error;
 
       currentUser = data.user;
-      await finishLogin();
+
+      await loadProfile();
+      await enterApplication();
+
     } catch (error) {
-      console.error("Ошибка входа:", error);
-      showMessage("authMessage", errorText(error));
+      console.error(error);
+
+      message(
+        "authMessage",
+        "Не удалось войти. Проверь логин и пароль.",
+        true
+      );
     } finally {
-      setBusy(false);
+      if (button) button.disabled = false;
     }
   }
 
-  async function register() {
-    if (busy) return;
+  async function logout() {
+    if (!confirm("Выйти из аккаунта?")) return;
 
-    const email = $("emailInput").value.trim();
-    const password = $("passwordInput").value;
-    const username = $("usernameInput").value.trim();
+    clearInterval(refreshTimer);
 
-    if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
-      showMessage(
-        "authMessage",
-        "Имя: 3–24 символа, английские буквы, цифры или _."
-      );
-      return;
-    }
+    await sb.auth.signOut();
 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showMessage("authMessage", "Введи правильную электронную почту.");
-      return;
-    }
+    currentUser = null;
+    currentProfile = null;
 
-    if (password.length < 6) {
-      showMessage(
-        "authMessage",
-        "Пароль должен содержать минимум 6 символов."
-      );
-      return;
-    }
+    show($("authView"), true);
+    show($("mainView"), false);
 
-    setBusy(true);
-    showMessage("authMessage", "Создаём аккаунт...", true);
-
-    try {
-      if (!sb) initSupabase();
-
-      const { data, error } = await sb.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { username }
-        }
-      });
-
-      if (error) throw error;
-
-      if (data.session && data.user) {
-        currentUser = data.user;
-        await finishLogin();
-      } else {
-        setAuthMode("login");
-        $("emailInput").value = email;
-        $("passwordInput").value = "";
-
-        showMessage(
-          "authMessage",
-          "Аккаунт создан! Теперь войди. Если требуется подтверждение почты, подтверди email.",
-          true
-        );
-      }
-    } catch (error) {
-      console.error("Ошибка регистрации:", error);
-      showMessage("authMessage", errorText(error));
-    } finally {
-      setBusy(false);
-    }
+    showLogin();
   }
 
-  // ==========================================
+  // =========================================
   // ПРОФИЛЬ
-  // ==========================================
+  // =========================================
 
   async function loadProfile() {
     const { data, error } = await sb
@@ -437,122 +252,72 @@
 
     if (error) throw error;
 
-    if (data) {
-      currentProfile = data;
-      return;
-    }
-
-    currentProfile = {
-      id: currentUser.id,
-      username:
-        currentUser.user_metadata?.username ||
-        currentUser.email?.split("@")[0] ||
-        "User",
-      role: "user",
-      friend_id: null
-    };
-
-    showMessage(
-      "setupNotice",
-      "Профиль не найден в Supabase. Проверь создание профиля."
-    );
+    currentProfile = data;
   }
 
-  async function finishLogin() {
-    $("authView").hidden = true;
-    $("mainView").hidden = false;
+  function renderProfile() {
+    const username =
+      currentProfile?.username ||
+      currentUser?.user_metadata?.username ||
+      "Пользователь";
 
-    try {
-      await loadProfile();
+    const displayName =
+      currentUser?.user_metadata?.display_name ||
+      username;
 
-      $("welcomeName").textContent =
-        currentProfile.username || "друг";
-
-      $("profileName").textContent =
-        currentProfile.username || "Пользователь";
-
-      $("profileEmail").textContent =
-        currentUser.email || "Не указана";
-
-      $("profileId").textContent =
-        currentProfile.friend_id || currentUser.id;
-
-      $("roleBadge").textContent =
-        currentProfile.role === "admin"
-          ? "🛡️ Администратор"
-          : "👤 Пользователь";
-
-      if (!currentProfile.friend_id && $("setupNotice")) {
-        $("setupNotice").textContent = "Твой ID: " + currentUser.id;
-      }
-
-      // Запускаем обновление присутствия пользователя.
-      startPresence();
-
-      await refreshFriends();
-      await refreshChats();
-    } catch (error) {
-      console.error("Ошибка загрузки профиля:", error);
-
-      showMessage(
-        "setupNotice",
-        "Ошибка загрузки данных: " + errorText(error)
-      );
+    if ($("profileName")) {
+      $("profileName").textContent = displayName;
     }
 
-    showPanel("chatsPanel");
+    if ($("profileId")) {
+      $("profileId").textContent = username;
+    }
+  }
 
-    if (refreshTimer) clearInterval(refreshTimer);
+  // =========================================
+  // ПЕРЕХОД В ПРИЛОЖЕНИЕ
+  // =========================================
+
+  async function enterApplication() {
+    show($("authView"), false);
+    show($("mainView"), true);
+
+    renderProfile();
+
+    openPanel("homePanel");
+
+    await loadProducts();
+    await loadOrders();
+
+    clearInterval(refreshTimer);
 
     refreshTimer = setInterval(async () => {
-      if (!currentUser) return;
-
-      try {
-        await refreshFriends();
-        await refreshChats();
-
-        if (activeChatId) {
-          await loadMessages(activeChatId);
-        }
-      } catch (error) {
-        console.error("Ошибка обновления:", error);
-      }
-    }, 10000);
+      await loadProducts();
+      await loadOrders();
+    }, 15000);
   }
 
-  async function restoreSession() {
-    const { data, error } = await sb.auth.getSession();
-
-    if (error) throw error;
-
-    if (data.session?.user) {
-      currentUser = data.session.user;
-      await finishLogin();
-    } else {
-      $("authView").hidden = false;
-      $("mainView").hidden = true;
-    }
-  }
-
-  // ==========================================
+  // =========================================
   // НАВИГАЦИЯ
-  // ==========================================
+  // =========================================
 
-  function showPanel(panelId) {
-    const allowed = [
-      "chatsPanel",
-      "friendsPanel",
+  function openPanel(panelId) {
+    const panels = [
+      "homePanel",
+      "shopPanel",
+      "ordersPanel",
+      "readyPanel",
       "profilePanel"
     ];
 
-    if (!allowed.includes(panelId)) return;
-
-    allowed.forEach((id) => {
+    panels.forEach(id => {
       const panel = $(id);
-      if (panel) panel.hidden = id !== panelId;
+      if (panel) {
+        panel.style.display = id === panelId ? "" : "none";
+      }
     });
 
-    document.querySelectorAll("[data-panel]").forEach((button) => {
+    document.querySelectorAll("[data-panel]").forEach(button => {
       button.classList.toggle(
         "active",
         button.dataset.panel === panelId
@@ -560,1048 +325,523 @@
     });
   }
 
-  // ==========================================
-  // ПОИСК ДРУГА
-  // ==========================================
+  // =========================================
+  // ТОВАРЫ
+  // =========================================
 
-  async function findFriend() {
-    if (!currentUser) {
-      showMessage("friendMessage", "Сначала войди в аккаунт.");
-      return;
-    }
-
-    const value = $("friendIdInput").value.trim();
-
-    if (!value) {
-      showMessage("friendMessage", "Введи ID пользователя.");
-      return;
-    }
-
-    if (
-      value === currentUser.id ||
-      value === currentProfile?.friend_id
-    ) {
-      showMessage("friendMessage", "Это твой собственный ID.");
-      return;
-    }
-
-    showMessage("friendMessage", "Ищем пользователя...", true);
-    $("friendResult").replaceChildren();
-
-    try {
-      let { data, error } = await sb
-        .from("profiles")
-        .select("id, username, friend_id, role")
-        .eq("friend_id", value)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-
-      if (!data && isUUID) {
-        const result = await sb
-          .from("profiles")
-          .select("id, username, friend_id, role")
-          .eq("id", value)
-          .maybeSingle();
-
-        if (result.error) throw result.error;
-        data = result.data;
-      }
-
-      if (!data) {
-        showMessage("friendMessage", "Пользователь не найден.");
-        return;
-      }
-
-      if (data.id === currentUser.id) {
-        showMessage("friendMessage", "Это твой собственный профиль.");
-        return;
-      }
-
-      const card = document.createElement("div");
-      card.className = "profile-detail";
-
-      const title = document.createElement("h3");
-      title.textContent = "👤 " + data.username;
-
-      const id = document.createElement("p");
-      id.textContent = "ID: " + (data.friend_id || data.id);
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "primary-btn";
-      button.textContent = "💌 Отправить заявку";
-      button.addEventListener("click", () => sendFriendRequest(data.id));
-
-      card.append(title, id, button);
-      $("friendResult").appendChild(card);
-
-      showMessage("friendMessage", "Пользователь найден!", true);
-    } catch (error) {
-      showMessage("friendMessage", errorText(error));
-    }
-  }
-
-  // ==========================================
-  // ЗАЯВКИ В ДРУЗЬЯ
-  // ==========================================
-
-  async function sendFriendRequest(targetId) {
-    if (!currentUser || targetId === currentUser.id) return;
-
-    try {
-      const { data: existing, error: lookupError } = await sb
-        .from("friends")
-        .select("*")
-        .or(
-          `and(user_id.eq.${currentUser.id},friend_user_id.eq.${targetId}),and(user_id.eq.${targetId},friend_user_id.eq.${currentUser.id})`
-        );
-
-      if (lookupError) throw lookupError;
-
-      if (existing?.some((item) => item.status === "accepted")) {
-        showMessage("friendMessage", "Вы уже друзья.", true);
-        return;
-      }
-
-      if (existing?.some((item) => item.status === "pending")) {
-        showMessage("friendMessage", "Заявка уже существует.");
-        return;
-      }
-
-      const { error } = await sb.from("friends").insert({
-        user_id: currentUser.id,
-        friend_user_id: targetId,
-        status: "pending"
-      });
-
-      if (error) throw error;
-
-      showMessage("friendMessage", "Заявка отправлена! 💌", true);
-      await refreshFriends();
-    } catch (error) {
-      showMessage("friendMessage", errorText(error));
-    }
-  }
-
-  async function refreshFriends() {
-    if (!currentUser) return;
-
-    let list = $("friendsList");
-
-    if (!list) {
-      list = document.createElement("div");
-      list.id = "friendsList";
-      list.className = "friends-list";
-
-      const section = $("friendsPanel")
-        ?.querySelector(".chatiki-section");
-
-      if (!section) return;
-
-      section.appendChild(list);
-    }
-
+  async function loadProducts() {
     const { data, error } = await sb
-      .from("friends")
+      .from("products")
       .select("*")
-      .or(
-        `user_id.eq.${currentUser.id},friend_user_id.eq.${currentUser.id}`
-      )
+      .eq("active", true)
       .order("created_at", { ascending: false });
 
     if (error) {
-      list.textContent =
-        "Ошибка загрузки друзей: " + errorText(error);
+      console.error(error);
       return;
     }
 
-    list.replaceChildren();
+    products = data || [];
 
-    if (!data?.length) {
-      const empty = document.createElement("p");
-      empty.textContent = "Пока нет друзей и заявок.";
-      list.appendChild(empty);
-      return;
-    }
+    renderProducts();
+  }
 
-    // Получаем профили всех собеседников.
-    const otherIds = data.map((relation) =>
-      relation.friend_user_id === currentUser.id
-        ? relation.user_id
-        : relation.friend_user_id
+  function productImageUrl(path) {
+    if (!path) return "";
+
+    const { data } = sb.storage
+      .from("product-photos")
+      .getPublicUrl(path);
+
+    return data.publicUrl;
+  }
+
+  function productCard(product) {
+    const image = productImageUrl(product.image_path);
+
+    const isMine = product.seller_id === currentUser.id;
+
+    return `
+      <article class="product-card">
+
+        ${
+          image
+            ? `<img
+                src="${escapeHTML(image)}"
+                alt="Фото товара"
+                class="product-image"
+              >`
+            : `<div class="product-placeholder">📦</div>`
+        }
+
+        <div class="product-card-content">
+
+          <h3>${escapeHTML(product.name)}</h3>
+
+          <div class="product-price">
+            ${formatPrice(product.price)}
+          </div>
+
+          <p>${escapeHTML(product.description || "")}</p>
+
+          <small>
+            ${isMine ? "Ваш товар" : "Продавец: " + product.seller_id.slice(0, 8)}
+          </small>
+
+          ${
+            isMine
+              ? `<button class="secondary-btn" disabled>
+                  Ваш товар
+                </button>`
+              : `<button
+                  class="primary-btn"
+                  data-buy="${product.id}"
+                >
+                  Заказать
+                </button>`
+          }
+
+        </div>
+      </article>
+    `;
+  }
+
+  function renderProducts() {
+    const home = $("homeProducts");
+    const shop = $("productList");
+
+    const search = (
+      $("productSearch")?.value || ""
+    ).toLowerCase();
+
+    const filtered = products.filter(product =>
+      product.name.toLowerCase().includes(search)
     );
 
-    // Загружаем статусы одним запросом.
-    const presenceMap = await getPresenceForUsers(otherIds);
+    if (home) {
+      home.innerHTML = products.length
+        ? products.slice(0, 6).map(productCard).join("")
+        : "<p>Пока товаров нет.</p>";
+    }
 
-    for (const relation of data) {
-      const incoming =
-        relation.friend_user_id === currentUser.id &&
-        relation.user_id !== currentUser.id;
-
-      const otherId = incoming
-        ? relation.user_id
-        : relation.friend_user_id;
-
-      const { data: person } = await sb
-        .from("profiles")
-        .select("username")
-        .eq("id", otherId)
-        .maybeSingle();
-
-      const card = document.createElement("div");
-      card.className = "profile-detail";
-
-      const title = document.createElement("h3");
-      title.textContent =
-        "👤 " + (person?.username || "Пользователь");
-
-      card.appendChild(title);
-
-      if (relation.status === "accepted") {
-        // Показываем онлайн/офлайн только для друзей.
-        const presence = presenceMap.get(otherId) || null;
-        card.appendChild(createPresenceElement(presence));
-      }
-
-      const status = document.createElement("p");
-
-      if (relation.status === "accepted") {
-        status.textContent = "✅ Вы друзья";
-      } else if (incoming && relation.status === "pending") {
-        status.textContent = "💌 Входящая заявка";
-      } else if (relation.status === "pending") {
-        status.textContent = "⏳ Заявка отправлена";
-      } else {
-        status.textContent = "Заявка отклонена";
-      }
-
-      card.appendChild(status);
-
-      if (incoming && relation.status === "pending") {
-        const accept = document.createElement("button");
-        accept.type = "button";
-        accept.className = "primary-btn";
-        accept.textContent = "Принять";
-        accept.addEventListener("click", () =>
-          respondToFriendRequest(relation.id, true)
-        );
-
-        const reject = document.createElement("button");
-        reject.type = "button";
-        reject.className = "secondary-btn";
-        reject.textContent = "Отклонить";
-        reject.addEventListener("click", () =>
-          respondToFriendRequest(relation.id, false)
-        );
-
-        card.append(accept, reject);
-      }
-
-      if (relation.status === "accepted") {
-        const open = document.createElement("button");
-        open.type = "button";
-        open.className = "primary-btn";
-        open.textContent = "💬 Написать";
-
-        open.addEventListener("click", () =>
-          openDirectChat(
-            otherId,
-            person?.username || "Личный чат"
-          )
-        );
-
-        card.appendChild(open);
-      }
-
-      list.appendChild(card);
+    if (shop) {
+      shop.innerHTML = filtered.length
+        ? filtered.map(productCard).join("")
+        : "<p>Ничего не найдено.</p>";
     }
   }
 
-  async function respondToFriendRequest(requestId, accept) {
+  // =========================================
+  // ДОБАВЛЕНИЕ ТОВАРА
+  // =========================================
+
+  async function addProduct() {
+    const name = $("productName")?.value.trim();
+    const price = Number($("productPrice")?.value);
+    const description =
+      $("productDescription")?.value.trim() || "";
+
+    const file = $("productImage")?.files?.[0];
+
+    if (!name) {
+      message("productMessage", "Введи название товара", true);
+      return;
+    }
+
+    if (name.length > 80) {
+      message("productMessage", "Название слишком длинное", true);
+      return;
+    }
+
+    if (!Number.isFinite(price) || price <= 0) {
+      message("productMessage", "Укажи правильную цену", true);
+      return;
+    }
+
+    if (description.length > 500) {
+      message("productMessage", "Описание слишком длинное", true);
+      return;
+    }
+
+    if (file && ![
+      "image/jpeg",
+      "image/png",
+      "image/webp"
+    ].includes(file.type)) {
+      message("productMessage", "Можно загружать JPG, PNG или WEBP", true);
+      return;
+    }
+
+    if (file && file.size > 5 * 1024 * 1024) {
+      message("productMessage", "Фото должно быть меньше 5 МБ", true);
+      return;
+    }
+
+    const button = $("addProductBtn");
+    if (button) button.disabled = true;
+
+    let imagePath = null;
+
     try {
-      const { error } = await sb.rpc("respond_to_friend_request", {
-        p_request_id: requestId,
-        p_accept: accept
-      });
+      message("productMessage", "Добавляем товар...");
+
+      if (file) {
+        const extension = file.type === "image/png"
+          ? "png"
+          : file.type === "image/webp"
+            ? "webp"
+            : "jpg";
+
+        imagePath =
+          `${currentUser.id}/${crypto.randomUUID()}.${extension}`;
+
+        const { error: uploadError } = await sb.storage
+          .from("product-photos")
+          .upload(imagePath, file, {
+            contentType: file.type,
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+      }
+
+      const { error } = await sb
+        .from("products")
+        .insert({
+          seller_id: currentUser.id,
+          name,
+          price,
+          description,
+          image_path: imagePath
+        });
 
       if (error) throw error;
 
-      showMessage(
-        "friendMessage",
-        accept ? "Заявка принята! 🎉" : "Заявка отклонена.",
+      if ($("productName")) $("productName").value = "";
+      if ($("productPrice")) $("productPrice").value = "";
+      if ($("productDescription")) $("productDescription").value = "";
+      if ($("productImage")) $("productImage").value = "";
+
+      message("productMessage", "Товар успешно добавлен!");
+
+      await loadProducts();
+
+    } catch (error) {
+      console.error(error);
+
+      message(
+        "productMessage",
+        error.message || "Не удалось добавить товар",
         true
       );
 
-      await refreshFriends();
-      await refreshChats();
-    } catch (error) {
-      showMessage("friendMessage", errorText(error));
-    }
-  }
-
-  // ==========================================
-  // ЧАТЫ
-  // ==========================================
-
-  async function openDirectChat(otherId, name) {
-    try {
-      const { data, error } = await sb.rpc("create_direct_chat", {
-        target_friend_id: otherId
-      });
-
-      if (error) throw error;
-
-      let chatId = data;
-
-      if (Array.isArray(data)) {
-        chatId = data[0]?.chat_id || data[0]?.id || data[0];
-      } else if (data && typeof data === "object") {
-        chatId = data.chat_id || data.id;
-      }
-
-      if (!chatId) {
-        throw new Error("Не удалось получить ID чата.");
-      }
-
-      activeChatId = chatId;
-      activeChatName = name;
-
-      showPanel("chatsPanel");
-      await renderActiveChat();
-      await refreshChats();
-    } catch (error) {
-      showMessage("friendMessage", errorText(error));
-    }
-  }
-
-  async function refreshChats() {
-    if (!currentUser) return;
-
-    const list = $("chatList");
-    if (!list) return;
-
-    const { data, error } = await sb
-      .from("chat_members")
-      .select("chat_id, joined_at")
-      .eq("user_id", currentUser.id)
-      .order("joined_at", { ascending: false });
-
-    if (error) {
-      list.textContent =
-        "Ошибка загрузки чатов: " + errorText(error);
-      return;
-    }
-
-    list.replaceChildren();
-
-    if (!data?.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty-state";
-
-      const title = document.createElement("h3");
-      title.textContent = "✉️ Тут будет уютно";
-
-      const text = document.createElement("p");
-      text.textContent =
-        "Добавь друга и начни общаться после принятия заявки.";
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary-btn";
-      button.textContent = "Найти друга";
-      button.addEventListener("click", () =>
-        showPanel("friendsPanel")
-      );
-
-      empty.append(title, text, button);
-      list.appendChild(empty);
-      return;
-    }
-
-    for (const membership of data) {
-      const { data: members } = await sb
-        .from("chat_members")
-        .select("user_id")
-        .eq("chat_id", membership.chat_id);
-
-      const other = (members || []).find(
-        (member) => member.user_id !== currentUser.id
-      );
-
-      let name = "Личный чат";
-
-      if (other) {
-        const { data: profile } = await sb
-          .from("profiles")
-          .select("username")
-          .eq("id", other.user_id)
-          .maybeSingle();
-
-        name = profile?.username || name;
-      }
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary-btn";
-      button.textContent =
-        (activeChatId === membership.chat_id ? "🟣 " : "💬 ") + name;
-
-      button.addEventListener("click", async () => {
-        activeChatId = membership.chat_id;
-        activeChatName = name;
-
-        await renderActiveChat();
-        await refreshChats();
-      });
-
-      list.appendChild(button);
-    }
-
-    if (activeChatId) {
-      await renderActiveChat();
-    }
-  }
-
-  // ==========================================
-  // ОКНО ПЕРЕПИСКИ
-  // ==========================================
-
-  function ensureMessengerUI() {
-    let box = $("activeChatBox");
-
-    if (!box) {
-      box = document.createElement("section");
-      box.id = "activeChatBox";
-      box.className = "chatiki-section";
-
-      box.innerHTML = `
-        <h2 id="activeChatTitle">💬 Переписка</h2>
-
-        <div id="messageList"
-          aria-live="polite"
-          style="max-height:55vh;overflow-y:auto;"></div>
-
-        <label for="messageInput">Сообщение</label>
-
-        <textarea
-          id="messageInput"
-          maxlength="5000"
-          rows="3"
-          placeholder="Напиши сообщение..."></textarea>
-
-        <div id="chatControls"
-          style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-
-          <button id="sendMessageBtn"
-            class="primary-btn"
-            type="button">Отправить 💌</button>
-
-          <button id="choosePhotoBtn"
-            class="secondary-btn"
-            type="button">📷 Фото</button>
-        </div>
-
-        <input id="photoInput"
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          hidden>
-
-        <p id="photoStatus"
-          role="status"
-          aria-live="polite"></p>
-
-        <p id="chatMessage"
-          role="status"
-          aria-live="polite"></p>
-      `;
-
-      $("chatsPanel").appendChild(box);
-    }
-
-    let controls = $("chatControls");
-
-    if (!controls) {
-      controls = document.createElement("div");
-      controls.id = "chatControls";
-      controls.style.cssText =
-        "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;";
-      box.appendChild(controls);
-    }
-
-    let sendButton = $("sendMessageBtn");
-
-    if (!sendButton) {
-      sendButton = document.createElement("button");
-      sendButton.id = "sendMessageBtn";
-      sendButton.className = "primary-btn";
-      sendButton.type = "button";
-      sendButton.textContent = "Отправить 💌";
-      controls.appendChild(sendButton);
-    } else if (sendButton.parentElement !== controls) {
-      controls.appendChild(sendButton);
-    }
-
-    let photoButton = $("choosePhotoBtn");
-
-    if (!photoButton) {
-      photoButton = document.createElement("button");
-      photoButton.id = "choosePhotoBtn";
-      photoButton.className = "secondary-btn";
-      photoButton.type = "button";
-      photoButton.textContent = "📷 Фото";
-      controls.appendChild(photoButton);
-    } else if (photoButton.parentElement !== controls) {
-      controls.appendChild(photoButton);
-    }
-
-    let photoInput = $("photoInput");
-
-    if (!photoInput) {
-      photoInput = document.createElement("input");
-      photoInput.id = "photoInput";
-      photoInput.type = "file";
-      photoInput.accept =
-        "image/jpeg,image/png,image/webp,image/gif";
-      photoInput.hidden = true;
-      box.appendChild(photoInput);
-    }
-
-    if (!$("messageList")) {
-      const list = document.createElement("div");
-      list.id = "messageList";
-      list.setAttribute("aria-live", "polite");
-      list.style.cssText = "max-height:55vh;overflow-y:auto;";
-      box.insertBefore(list, controls);
-    }
-
-    if (!$("messageInput")) {
-      const label = document.createElement("label");
-      label.htmlFor = "messageInput";
-      label.textContent = "Сообщение";
-
-      const input = document.createElement("textarea");
-      input.id = "messageInput";
-      input.maxLength = 5000;
-      input.rows = 3;
-      input.placeholder = "Напиши сообщение...";
-
-      box.insertBefore(label, controls);
-      box.insertBefore(input, controls);
-    }
-
-    if (!$("activeChatTitle")) {
-      const title = document.createElement("h2");
-      title.id = "activeChatTitle";
-      title.textContent = "💬 Переписка";
-      box.prepend(title);
-    }
-
-    if (!$("photoStatus")) {
-      const status = document.createElement("p");
-      status.id = "photoStatus";
-      status.setAttribute("role", "status");
-      status.setAttribute("aria-live", "polite");
-      box.appendChild(status);
-    }
-
-    if (!$("chatMessage")) {
-      const status = document.createElement("p");
-      status.id = "chatMessage";
-      status.setAttribute("role", "status");
-      status.setAttribute("aria-live", "polite");
-      box.appendChild(status);
-    }
-
-    if (!sendButton.dataset.bound) {
-      sendButton.dataset.bound = "true";
-      sendButton.addEventListener("click", sendMessage);
-    }
-
-    const messageInput = $("messageInput");
-
-    if (messageInput && !messageInput.dataset.bound) {
-      messageInput.dataset.bound = "true";
-
-      messageInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          sendMessage();
-        }
-      });
-    }
-
-    if (!photoButton.dataset.bound) {
-      photoButton.dataset.bound = "true";
-
-      photoButton.addEventListener("click", () => {
-        if (!activeChatId) {
-          showMessage(
-            "photoStatus",
-            "Сначала открой личный чат."
-          );
-          return;
-        }
-
-        $("photoInput").click();
-      });
-    }
-
-    if (!photoInput.dataset.bound) {
-      photoInput.dataset.bound = "true";
-
-      photoInput.addEventListener("change", async (event) => {
-        const file = event.target.files?.[0];
-
-        if (file) {
-          await sendPhoto(file);
-        }
-
-        event.target.value = "";
-      });
-    }
-
-    return box;
-  }
-
-  async function renderActiveChat() {
-    if (!activeChatId) return;
-
-    ensureMessengerUI();
-
-    $("activeChatTitle").textContent = "💬 " + activeChatName;
-
-    await loadMessages(activeChatId);
-  }
-
-  // ==========================================
-  // ФОТОГРАФИИ
-  // ==========================================
-
-  function isAllowedPhoto(file) {
-    return [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/gif"
-    ].includes(file.type);
-  }
-
-  async function sendPhoto(file) {
-    if (photoBusy) return;
-
-    if (!currentUser || !activeChatId) {
-      showMessage("photoStatus", "Сначала открой личный чат.");
-      return;
-    }
-
-    if (!isAllowedPhoto(file)) {
-      showMessage(
-        "photoStatus",
-        "Выбери изображение JPG, PNG, WEBP или GIF."
-      );
-      return;
-    }
-
-    if (file.size > MAX_PHOTO_SIZE) {
-      showMessage(
-        "photoStatus",
-        "Фото больше 8 МБ. Выбери фотографию поменьше."
-      );
-      return;
-    }
-
-    ensureMessengerUI();
-
-    photoBusy = true;
-    $("choosePhotoBtn").disabled = true;
-    showMessage("photoStatus", "Загружаем фотографию...", true);
-
-    let uploadedPath = null;
-
-    try {
-      const safeName = file.name
-        .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(-80) || "photo.jpg";
-
-      const filePath =
-        `${activeChatId}/${currentUser.id}/` +
-        `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-
-      const { data: uploaded, error: uploadError } = await sb
-        .storage
-        .from(PHOTO_BUCKET)
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          contentType: file.type,
-          upsert: false
-        });
-
-      if (uploadError) throw uploadError;
-
-      uploadedPath = uploaded.path;
-
-      const { error: messageError } = await sb
-        .from("messages")
-        .insert({
-          chat_id: activeChatId,
-          sender_id: currentUser.id,
-          content: PHOTO_PREFIX + uploadedPath
-        });
-
-      if (messageError) {
+      if (imagePath) {
         await sb.storage
-          .from(PHOTO_BUCKET)
-          .remove([uploadedPath]);
-
-        throw messageError;
+          .from("product-photos")
+          .remove([imagePath]);
       }
 
-      showMessage("photoStatus", "Фотография отправлена! 📸", true);
-
-      await loadMessages(activeChatId);
-    } catch (error) {
-      console.error("Ошибка отправки фото:", error);
-      showMessage("photoStatus", errorText(error));
     } finally {
-      photoBusy = false;
-
-      const button = $("choosePhotoBtn");
       if (button) button.disabled = false;
     }
   }
 
-  async function createPhotoURL(path) {
-    const { data, error } = await sb
-      .storage
-      .from(PHOTO_BUCKET)
-      .createSignedUrl(path, 3600);
+  // =========================================
+  // СОЗДАНИЕ ЗАКАЗА
+  // =========================================
 
-    if (error) throw error;
+  async function createOrder(productId) {
+    const product = products.find(p => p.id === productId);
 
-    return data.signedUrl;
+    if (!product) return;
+
+    if (product.seller_id === currentUser.id) {
+      alert("Нельзя заказать собственный товар.");
+      return;
+    }
+
+    if (!confirm(
+      `Заказать "${product.name}" за ${formatPrice(product.price)}?`
+    )) return;
+
+    try {
+      const { error } = await sb
+        .from("orders")
+        .insert({
+          product_id: product.id,
+          buyer_id: currentUser.id,
+          seller_id: product.seller_id,
+          status: "pending"
+        });
+
+      if (error) throw error;
+
+      alert("Заказ успешно оформлен!");
+
+      await loadOrders();
+      openPanel("ordersPanel");
+
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Не удалось оформить заказ");
+    }
   }
 
-  // ==========================================
-  // ЗАГРУЗКА СООБЩЕНИЙ
-  // ==========================================
+  // =========================================
+  // ЗАКАЗЫ
+  // =========================================
 
-  async function loadMessages(chatId) {
-    if (!currentUser || !chatId) return;
-
-    ensureMessengerUI();
-
+  async function loadOrders() {
     const { data, error } = await sb
-      .from("messages")
-      .select("id, chat_id, sender_id, content, created_at")
-      .eq("chat_id", chatId)
-      .order("created_at", { ascending: true })
-      .limit(200);
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
-      showMessage("chatMessage", errorText(error));
+      console.error(error);
       return;
     }
 
-    const list = $("messageList");
-    list.replaceChildren();
+    const orders = data || [];
 
-    if (!data?.length) {
-      const empty = document.createElement("p");
-      empty.textContent =
-        "Начни переписку! Напиши первое сообщение 💜";
-      list.appendChild(empty);
-      return;
-    }
+    const productIds = [...new Set(
+      orders.map(order => order.product_id)
+    )];
 
-    for (const message of data) {
-      const item = document.createElement("div");
-      item.className = "message-item";
+    let productMap = {};
 
-      Object.assign(item.style, {
-        padding: "10px",
-        margin: "8px 0",
-        borderRadius: "12px",
-        overflowWrap: "anywhere",
-        background: message.sender_id === currentUser.id
-          ? "rgba(135,90,230,0.22)"
-          : "rgba(255,255,255,0.06)"
+    if (productIds.length) {
+      const { data: productData } = await sb
+        .from("products")
+        .select("id,name,price")
+        .in("id", productIds);
+
+      (productData || []).forEach(product => {
+        productMap[product.id] = product;
       });
-
-      const author = document.createElement("strong");
-      author.textContent =
-        message.sender_id === currentUser.id
-          ? "Ты"
-          : activeChatName;
-
-      item.appendChild(author);
-
-      const content = message.content || "";
-
-      if (content.startsWith(PHOTO_PREFIX)) {
-        const path = content.slice(PHOTO_PREFIX.length);
-
-        const image = document.createElement("img");
-        image.alt = "Фотография из чата";
-        image.loading = "lazy";
-
-        Object.assign(image.style, {
-          display: "block",
-          maxWidth: "100%",
-          width: "auto",
-          maxHeight: "360px",
-          objectFit: "contain",
-          borderRadius: "10px",
-          marginTop: "8px",
-          cursor: "pointer"
-        });
-
-        image.addEventListener("click", () => {
-          if (image.src) {
-            window.open(image.src, "_blank", "noopener,noreferrer");
-          }
-        });
-
-        const loading = document.createElement("p");
-        loading.textContent = "Загружаем фото...";
-
-        item.appendChild(loading);
-        item.appendChild(image);
-
-        createPhotoURL(path)
-          .then((url) => {
-            image.src = url;
-            loading.remove();
-          })
-          .catch((photoError) => {
-            console.error("Не удалось открыть фото:", photoError);
-            loading.textContent =
-              "Не удалось загрузить фото. Проверь доступ к хранилищу.";
-          });
-      } else {
-        const text = document.createElement("p");
-        text.style.whiteSpace = "pre-wrap";
-        text.style.overflowWrap = "anywhere";
-        text.textContent = content;
-        item.appendChild(text);
-      }
-
-      const time = document.createElement("small");
-      time.textContent =
-        new Date(message.created_at).toLocaleString();
-
-      item.appendChild(time);
-      list.appendChild(item);
     }
 
-    list.scrollTop = list.scrollHeight;
+    const myOrders = orders.filter(
+      order => order.buyer_id === currentUser.id
+    );
+
+    const sellerOrders = orders.filter(
+      order => order.seller_id === currentUser.id
+    );
+
+    const readyOrders = myOrders.filter(
+      order => order.status === "ready"
+    );
+
+    renderOrders("myOrders", myOrders, productMap, "buyer");
+    renderOrders("sellerOrders", sellerOrders, productMap, "seller");
+    renderOrders("readyOrders", readyOrders, productMap, "buyer");
   }
 
-  // ==========================================
-  // ОТПРАВКА ТЕКСТА
-  // ==========================================
+  function statusName(status) {
+    return {
+      pending: "Ожидает подтверждения",
+      ready: "Можно забирать",
+      done: "Заказ выдан",
+      cancelled: "Отменён"
+    }[status] || status;
+  }
 
-  async function sendMessage() {
-    if (!currentUser || !activeChatId) {
-      showMessage("chatMessage", "Сначала открой чат.");
+  function renderOrders(containerId, orders, productMap, role) {
+    const container = $(containerId);
+
+    if (!container) return;
+
+    if (!orders.length) {
+      container.innerHTML = "<p>Пока заказов нет.</p>";
       return;
     }
 
-    const input = $("messageInput");
-    const content = input.value.trim();
+    container.innerHTML = orders.map(order => {
+      const product = productMap[order.product_id];
 
-    if (!content) return;
+      const title = product
+        ? product.name
+        : "Товар";
 
-    const button = $("sendMessageBtn");
-    button.disabled = true;
+      const price = product
+        ? formatPrice(product.price)
+        : "";
 
+      let buttons = "";
+
+      if (role === "seller" && order.status === "pending") {
+        buttons = `
+          <button
+            class="primary-btn"
+            data-ready="${order.id}"
+          >
+            Можно забирать
+          </button>
+        `;
+      }
+
+      if (role === "buyer" && order.status === "ready") {
+        buttons = `
+          <button
+            class="primary-btn"
+            data-done="${order.id}"
+          >
+            Заказ выдан
+          </button>
+        `;
+      }
+
+      return `
+        <article class="order-card">
+
+          <h3>${escapeHTML(title)}</h3>
+
+          <p>Цена: ${price}</p>
+
+          <p>
+            Статус:
+            <strong>${statusName(order.status)}</strong>
+          </p>
+
+          <small>
+            Заказ: ${order.id.slice(0, 8)}
+          </small>
+
+          ${buttons}
+
+        </article>
+      `;
+    }).join("");
+  }
+
+  // =========================================
+  // ИЗМЕНЕНИЕ СТАТУСОВ
+  // =========================================
+
+  async function updateOrder(orderId, status) {
     try {
-      const { error } = await sb.from("messages").insert({
-        chat_id: activeChatId,
-        sender_id: currentUser.id,
-        content
-      });
+      const { error } = await sb
+        .from("orders")
+        .update({ status })
+        .eq("id", orderId);
 
       if (error) throw error;
 
-      input.value = "";
-      showMessage("chatMessage", "Сообщение отправлено! 💜", true);
+      await loadOrders();
 
-      await loadMessages(activeChatId);
     } catch (error) {
-      showMessage("chatMessage", errorText(error));
-    } finally {
-      button.disabled = false;
+      console.error(error);
+      alert(error.message || "Не удалось изменить статус");
     }
   }
 
-  // ==========================================
-  // КОПИРОВАНИЕ ID
-  // ==========================================
+  // =========================================
+  // СОБЫТИЯ
+  // =========================================
 
-  async function copyMyId() {
-    const id = currentProfile?.friend_id || currentUser?.id;
-    if (!id) return;
+  function bindEvents() {
+    $("loginTab")?.addEventListener("click", showLogin);
+    $("registerTab")?.addEventListener("click", showRegister);
 
-    try {
-      await navigator.clipboard.writeText(id);
-      alert("ID скопирован! 📋");
-    } catch {
-      prompt("Скопируй свой ID:", id);
-    }
-  }
-
-  // ==========================================
-  // ВЫХОД
-  // ==========================================
-
-  async function logout() {
-    if (!sb) return;
-
-    try {
-      stopPresence();
-
-      if (refreshTimer) {
-        clearInterval(refreshTimer);
-        refreshTimer = null;
-      }
-
-      // Помечаем аккаунт офлайн перед выходом.
-      await markOffline();
-
-      const { error } = await sb.auth.signOut();
-      if (error) throw error;
-
-      currentUser = null;
-      currentProfile = null;
-      activeChatId = null;
-      activeChatName = "";
-
-      $("mainView").hidden = true;
-      $("authView").hidden = false;
-      $("passwordInput").value = "";
-
-      setAuthMode("login");
-      showMessage("authMessage", "Ты вышел из аккаунта.", true);
-    } catch (error) {
-      alert("Ошибка выхода: " + errorText(error));
-    }
-  }
-
-  // ==========================================
-  // ПОДКЛЮЧЕНИЕ КНОПОК
-  // ==========================================
-
-  function wireEvents() {
-    $("loginTab").addEventListener("click", () =>
-      setAuthMode("login")
-    );
-
-    $("registerTab").addEventListener("click", () =>
-      setAuthMode("register")
-    );
-
-    $("submitAuth").addEventListener("click", () => {
-      if (busy) return;
-
-      if ($("registerBox").hidden) {
-        login();
-      } else {
+    $("submitAuth")?.addEventListener("click", () => {
+      if ($("registerBox")?.style.display !== "none") {
         register();
+      } else {
+        login();
       }
     });
 
-    [
-      "emailInput",
-      "passwordInput",
-      "usernameInput"
-    ].forEach((id) => {
-      $(id).addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" || busy) return;
+    $("addProductBtn")?.addEventListener("click", addProduct);
 
-        if ($("registerBox").hidden) {
-          login();
-        } else {
-          register();
-        }
-      });
+    $("productSearch")?.addEventListener("input", renderProducts);
+
+    $("profileLogoutBtn")?.addEventListener("click", logout);
+
+    $("copyMyIdBtn")?.addEventListener("click", async () => {
+      const username =
+        currentProfile?.username ||
+        currentUser?.user_metadata?.username ||
+        "";
+
+      try {
+        await navigator.clipboard.writeText(username);
+        alert("Логин скопирован!");
+      } catch {
+        alert("Не удалось скопировать логин");
+      }
     });
 
-    document.querySelectorAll("[data-panel]").forEach((button) => {
+    document.querySelectorAll("[data-panel]").forEach(button => {
       button.addEventListener("click", () => {
-        showPanel(button.dataset.panel);
+        openPanel(button.dataset.panel);
       });
     });
 
-    document.querySelectorAll("[data-go]").forEach((button) => {
-      button.addEventListener("click", () => {
-        showPanel(button.dataset.go);
-      });
-    });
+    document.addEventListener("click", event => {
+      const buyButton = event.target.closest("[data-buy]");
+      const readyButton = event.target.closest("[data-ready]");
+      const doneButton = event.target.closest("[data-done]");
 
-    $("findFriendBtn").addEventListener("click", findFriend);
+      if (buyButton) {
+        createOrder(buyButton.dataset.buy);
+      }
 
-    $("friendIdInput").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") findFriend();
-    });
+      if (readyButton) {
+        updateOrder(readyButton.dataset.ready, "ready");
+      }
 
-    $("profileLogoutBtn").addEventListener("click", logout);
-    $("copyMyIdBtn").addEventListener("click", copyMyId);
-
-    // Если пользователь возвращается на страницу,
-    // сразу обновляем его статус.
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && currentUser) {
-        updateMyPresence(true);
-        refreshFriends();
+      if (doneButton) {
+        updateOrder(doneButton.dataset.done, "done");
       }
     });
   }
 
-  // ==========================================
+  // =========================================
   // ЗАПУСК
-  // ==========================================
+  // =========================================
 
-  async function startApp() {
-    try {
-      wireEvents();
-      setAuthMode("login");
-    } catch (error) {
-      console.error("Ошибка подключения кнопок:", error);
+  async function start() {
+    if (!initializeSupabase()) return;
 
-      showMessage(
-        "authMessage",
-        "Не удалось подключить кнопки: " + errorText(error)
-      );
+    bindEvents();
 
+    const { data, error } = await sb.auth.getSession();
+
+    if (error) {
+      console.error(error);
       return;
     }
 
-    try {
-      initSupabase();
-      await restoreSession();
-    } catch (error) {
-      console.error("Ошибка запуска Chatiki:", error);
+    if (data.session) {
+      currentUser = data.session.user;
 
-      $("authView").hidden = false;
-      $("mainView").hidden = true;
-
-      showMessage(
-        "authMessage",
-        "Ошибка запуска: " + errorText(error)
-      );
+      try {
+        await loadProfile();
+        await enterApplication();
+      } catch (error) {
+        console.error(error);
+        alert("Не удалось загрузить профиль: " + error.message);
+      }
+    } else {
+      show($("authView"), true);
+      show($("mainView"), false);
+      showLogin();
     }
+
+    sb.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        currentUser = null;
+        currentProfile = null;
+
+        clearInterval(refreshTimer);
+
+        show($("authView"), true);
+        show($("mainView"), false);
+      }
+    });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", startApp, {
-      once: true
-    });
-  } else {
-    startApp();
-  }
+  document.addEventListener("DOMContentLoaded", start);
+
 })();
