@@ -1,228 +1,165 @@
-<!doctype html>
-
-<html lang="ru">
+<!DOCTYPE html><html lang="ru">
 <head>
-  <meta name="yandex-verification"
-    content="f7667b5765e4fb5d" />
-  <meta charset="utf-8">
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  >
-  <meta name="theme-color" content="#100d18">
-  <meta name="description" content="Chatiki — мессенджер для друзей">
-  <title>Chatiki — мессенджер</title>  <link rel="manifest" href="manifest.webmanifest">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7655e8">
+  <meta name="description" content="PVZ Market — твой домашний маркетплейс">
+  <title>PVZ Market</title>  <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="style.css">  <script src="config.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>  <script src="app.js" defer></script></head><body>
-  <div class="app-shell"><header class="topbar">
-  <div class="brand">
-    <div class="brand-icon">💬</div>
-    <span>Chatiki</span>
+<div class="app-shell">  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">📦</div>
+      <span>PVZ Market</span>
+    </div>
+    <span class="subtitle">Твой маленький маркетплейс 💜</span>
+  </header>  <!-- Авторизация -->  <main id="authView">
+    <section class="auth-card">
+      <h1>Добро пожаловать! 👋</h1>
+      <p>Войди или создай аккаунт PVZ Market.</p>  <div class="auth-tabs">
+    <button id="loginTab" class="active" type="button">Войти</button>
+    <button id="registerTab" type="button">Регистрация</button>
   </div>
-  <span class="subtitle">Твои друзья рядом 💜</span>
-</header>
 
-<!-- Авторизация -->
-<main id="authView">
-  <section class="auth-card">
-    <h1>Добро пожаловать!</h1>
-    <p class="subtitle">Общайся с друзьями в Chatiki</p>
+  <div id="loginBox">
+    <label for="loginUsername">Логин</label>
+    <input id="loginUsername" type="text" placeholder="Твой логин" autocomplete="username">
 
-    <div class="auth-tabs">
-      <button id="loginTab" class="active" type="button">
-        Войти
-      </button>
-      <button id="registerTab" type="button">
-        Регистрация
-      </button>
-    </div>
-
-    <div id="loginBox">
-      <label for="emailInput">Электронная почта</label>
-      <input
-        id="emailInput"
-        type="email"
-        placeholder="you@example.com"
-        autocomplete="email"
-        required
-      >
-
-      <label for="passwordInput">Пароль</label>
-      <input
-        id="passwordInput"
-        type="password"
-        placeholder="Твой пароль"
-        autocomplete="current-password"
-        required
-      >
-    </div>
-
-    <div id="registerBox" hidden>
-      <label for="usernameInput">Имя пользователя</label>
-      <input
-        id="usernameInput"
-        type="text"
-        placeholder="Например, Player_123"
-        minlength="3"
-        maxlength="24"
-        autocomplete="username"
-      >
-    </div>
-
-    <button id="submitAuth" class="primary-btn" type="button">
-      Войти
-    </button>
-
-    <p id="authMessage" role="status" aria-live="polite"></p>
-  </section>
-
-  <section class="info-card">
-    <h3>✨ Что есть в Chatiki?</h3>
-    <p>👥 Поиск друзей по ID</p>
-    <p>💌 Заявки в друзья</p>
-    <p>💬 Личные переписки</p>
-    <p>🔐 Аккаунт и профиль</p>
-  </section>
-</main>
-
-<!-- Основной экран -->
-<main id="mainView" hidden>
-  <section class="card">
-    <h1>Привет, <span id="welcomeName">друг</span>! 👋</h1>
-    <p class="subtitle">Рады видеть тебя в Chatiki.</p>
-    <p id="setupNotice" class="subtitle"></p>
-  </section>
-
-  <!-- Навигация -->
-  <nav class="bottom-nav" aria-label="Основная навигация">
-    <button
-      type="button"
-      class="active"
-      data-panel="chatsPanel"
-    >
-      💬 Чаты
-    </button>
-
-    <button
-      type="button"
-      data-panel="friendsPanel"
-    >
-      👥 Друзья
-    </button>
-
-    <button
-      type="button"
-      data-panel="profilePanel"
-    >
-      👤 Профиль
-    </button>
-  </nav>
-
-  <!-- Чаты -->
-  <section id="chatsPanel">
-    <section class="chatiki-section">
-      <h2>💬 Мои чаты</h2>
-
-      <div id="chatList">
-        <div class="empty-state">
-          <div class="empty-icon">✉️</div>
-          <h3>Тут будет уютно</h3>
-          <p>
-            Добавь друга и начни общаться с ним после принятия заявки.
-          </p>
-          <button
-            type="button"
-            class="secondary-btn"
-            data-go="friendsPanel"
-          >
-            Найти друга
-          </button>
-        </div>
-      </div>
-    </section>
-  </section>
-
-  <!-- Друзья -->
-  <section id="friendsPanel" hidden>
-    <section class="chatiki-section">
-      <h2>👥 Найти друга</h2>
-      <p class="subtitle">
-        Введи ID пользователя, которого хочешь добавить.
-      </p>
-
-      <label for="friendIdInput">ID друга</label>
-      <input
-        id="friendIdInput"
-        type="text"
-        placeholder="Введи ID пользователя"
-        autocomplete="off"
-      >
-
-      <button
-        id="findFriendBtn"
-        class="primary-btn"
-        type="button"
-      >
-        🔎 Найти
-      </button>
-
-      <p id="friendMessage" role="status" aria-live="polite"></p>
-
-      <div id="friendResult"></div>
-    </section>
-
-    <section class="info-card">
-      <h3>💌 Как добавить друга?</h3>
-      <p>1. Узнай ID друга.</p>
-      <p>2. Передай свой ID другу.</p>
-      <p>3. Друг найдёт тебя через поиск.</p>
-      <p>4. Отправь заявку и дождись её принятия.</p>
-    </section>
-  </section>
-
-  <!-- Профиль пользователя -->
-  <section id="profilePanel" hidden>
-    <section class="chatiki-section">
-      <h2>👤 Мой профиль</h2>
-
-      <div id="chatikiProfileCard">
-        <div class="profile-avatar">👤</div>
-        <h2 id="profileName">Загрузка...</h2>
-
-        <div class="profile-detail">
-          <strong>📧 Электронная почта</strong>
-          <p id="profileEmail">Загрузка...</p>
-        </div>
-
-        <div class="profile-detail">
-          <strong>🆔 Твой ID</strong>
-          <p id="profileId">Загрузка...</p>
-          <button
-            id="copyMyIdBtn"
-            class="secondary-btn"
-            type="button"
-          >
-            📋 Скопировать ID
-          </button>
-        </div>
-
-        <div class="profile-detail">
-          <strong>🛡️ Статус аккаунта</strong>
-          <p id="roleBadge">Пользователь</p>
-        </div>
-      </div>
-
-      <button
-        id="profileLogoutBtn"
-        class="secondary-btn"
-        type="button"
-      >
-        🚪 Выйти из аккаунта
-      </button>
-    </section>
-  </section>
-
-</main>
-
+    <label for="loginPassword">Пароль</label>
+    <input id="loginPassword" type="password" placeholder="Твой пароль" autocomplete="current-password">
   </div>
+
+  <div id="registerBox" hidden>
+    <label for="registerUsername">Придумай логин</label>
+    <input id="registerUsername" type="text" placeholder="Например, Player123" minlength="3" maxlength="24" autocomplete="username">
+
+    <label for="registerPassword">Придумай пароль</label>
+    <input id="registerPassword" type="password" placeholder="Минимум 6 символов" minlength="6" autocomplete="new-password">
+
+    <label for="registerName">Отображаемое имя</label>
+    <input id="registerName" type="text" placeholder="Как тебя называть?">
+  </div>
+
+  <button id="submitAuth" class="primary-btn" type="button">Войти</button>
+  <p id="authMessage" role="status"></p>
+</section>
+
+<section class="info-card">
+  <h3>✨ Что тебя ждёт?</h3>
+  <p>🛍️ Магазин товаров</p>
+  <p>📦 Создание заказов</p>
+  <p>🏪 Собственные объявления</p>
+  <p>✅ Уведомления о готовности</p>
+</section>
+
+  </main>  <!-- Основное приложение -->  <main id="mainView" hidden><section class="welcome-card">
+  <h1>Привет, <span id="welcomeName">друг</span>! 👋</h1>
+  <p>Что сегодня будем покупать?</p>
+</section>
+
+<nav class="bottom-nav">
+  <button class="active" data-panel="homePanel">🏠 Главная</button>
+  <button data-panel="shopPanel">🛍️ Магазин</button>
+  <button data-panel="ordersPanel">📦 Заказы</button>
+  <button data-panel="readyPanel">✅ Готовые</button>
+  <button data-panel="profilePanel">👤 Профиль</button>
+</nav>
+
+<!-- Главная -->
+<section id="homePanel">
+  <div class="section-card">
+    <h2>🏪 PVZ Market</h2>
+    <p>Покупай товары или выставляй собственные!</p>
+  </div>
+
+  <div class="section-card">
+    <h2>🔥 Последние товары</h2>
+    <div id="homeProducts" class="product-grid">
+      <p>Загружаем товары...</p>
+    </div>
+  </div>
+</section>
+
+<!-- Магазин -->
+<section id="shopPanel" hidden>
+  <div class="section-card">
+    <h2>🛍️ Магазин</h2>
+    <input id="productSearch" type="search" placeholder="🔎 Найти товар...">
+    <div id="productList" class="product-grid">
+      <p>Загружаем товары...</p>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <h2>➕ Добавить товар</h2>
+
+    <label for="productName">Название товара</label>
+    <input id="productName" type="text" placeholder="Например, Игрушка">
+
+    <label for="productPrice">Цена</label>
+    <input id="productPrice" type="number" min="0" step="0.01" placeholder="100">
+
+    <label for="productDescription">Описание</label>
+    <textarea id="productDescription" placeholder="Описание товара..."></textarea>
+
+    <label for="productImage">Фотография товара</label>
+    <input id="productImage" type="file" accept="image/*">
+
+    <button id="addProductBtn" class="primary-btn" type="button">
+      Опубликовать товар
+    </button>
+
+    <p id="productMessage" role="status"></p>
+  </div>
+</section>
+
+<!-- Заказы -->
+<section id="ordersPanel" hidden>
+  <div class="section-card">
+    <h2>📦 Мои заказы</h2>
+    <div id="myOrders">
+      <p>Загрузка заказов...</p>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <h2>🏪 Заказы покупателей</h2>
+    <div id="sellerOrders">
+      <p>Загрузка заказов...</p>
+    </div>
+  </div>
+</section>
+
+<!-- Готовые заказы -->
+<section id="readyPanel" hidden>
+  <div class="section-card">
+    <h2>✅ Готовые заказы</h2>
+    <div id="readyOrders">
+      <p>Загрузка готовых заказов...</p>
+    </div>
+  </div>
+</section>
+
+<!-- Профиль -->
+<section id="profilePanel" hidden>
+  <div class="section-card">
+    <h2>👤 Мой профиль</h2>
+    <div class="profile-avatar">👤</div>
+    <h3 id="profileName">Загрузка...</h3>
+
+    <p>🆔 Мой ID:</p>
+    <p id="profileId">Загрузка...</p>
+
+    <button id="copyMyIdBtn" class="secondary-btn" type="button">
+      📋 Скопировать ID
+    </button>
+
+    <button id="profileLogoutBtn" class="secondary-btn" type="button">
+      🚪 Выйти
+    </button>
+  </div>
+</section>
+
+  </main>
+</div>
 </body>
 </html>
