@@ -49,15 +49,6 @@
     });
   }
 
-  function formatDate(value) {
-    if (!value) return "Неизвестно";
-
-    return new Date(value).toLocaleString("ru-RU", {
-      dateStyle: "short",
-      timeStyle: "short"
-    });
-  }
-
   // =========================================
   // SUPABASE
   // =========================================
@@ -254,16 +245,11 @@
     currentProfile = data;
   }
 
-  function getMyUsername() {
-    return (
+  function renderProfile() {
+    const username =
       currentProfile?.username ||
       currentUser?.user_metadata?.username ||
-      "Пользователь"
-    );
-  }
-
-  function renderProfile() {
-    const username = getMyUsername();
+      "Пользователь";
 
     const displayName =
       currentUser?.user_metadata?.display_name ||
@@ -617,7 +603,6 @@
         .insert({
           product_id: product.id,
           buyer_id: currentUser.id,
-          buyer_username: getMyUsername(),
           seller_id: product.seller_id,
           status: "pending"
         });
@@ -635,6 +620,40 @@
     }
   }
 
+  // =========================================
+  // ЗАГРУЗКА ИМЁН ПОКУПАТЕЛЕЙ
+  // =========================================
+
+  async function loadBuyerProfiles(orders) {
+    const buyerIds = [
+      ...new Set(orders.map(order => order.buyer_id).filter(Boolean))
+    ];
+
+    if (!buyerIds.length) return {};
+
+    const { data, error } = await sb
+      .from("profiles")
+      .select("id, username")
+      .in("id", buyerIds);
+
+    if (error) {
+      console.error("Ошибка загрузки покупателей:", error);
+      return {};
+    }
+
+    const profileMap = {};
+
+    (data || []).forEach(profile => {
+      profileMap[profile.id] = profile.username;
+    });
+
+    return profileMap;
+  }
+
+  // =========================================
+  // ЗАГРУЗКА ЗАКАЗОВ
+  // =========================================
+
   async function loadOrders() {
     const { data, error } = await sb
       .from("orders")
@@ -642,25 +661,35 @@
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error(error);
+      console.error("Ошибка загрузки заказов:", error);
       return;
     }
 
     const orders = data || [];
-    const productIds = [...new Set(orders.map(order => order.product_id))];
+
+    const productIds = [
+      ...new Set(orders.map(order => order.product_id))
+    ];
 
     let productMap = {};
 
     if (productIds.length) {
-      const { data: productData } = await sb
+      const { data: productData, error: productError } = await sb
         .from("products")
         .select("id,name,price")
         .in("id", productIds);
+
+      if (productError) {
+        console.error("Ошибка загрузки товаров заказов:", productError);
+      }
 
       (productData || []).forEach(product => {
         productMap[product.id] = product;
       });
     }
+
+    // Получаем имена всех покупателей
+    const buyerProfileMap = await loadBuyerProfiles(orders);
 
     const myOrders = orders.filter(order =>
       order.buyer_id === currentUser.id
@@ -674,10 +703,34 @@
       order.status === "ready"
     );
 
-    renderOrders("myOrders", myOrders, productMap, "buyer");
-    renderOrders("sellerOrders", sellerOrders, productMap, "seller");
-    renderOrders("readyOrders", readyOrders, productMap, "buyer");
+    renderOrders(
+      "myOrders",
+      myOrders,
+      productMap,
+      buyerProfileMap,
+      "buyer"
+    );
+
+    renderOrders(
+      "sellerOrders",
+      sellerOrders,
+      productMap,
+      buyerProfileMap,
+      "seller"
+    );
+
+    renderOrders(
+      "readyOrders",
+      readyOrders,
+      productMap,
+      buyerProfileMap,
+      "buyer"
+    );
   }
+
+  // =========================================
+  // СТАТУСЫ ЗАКАЗОВ
+  // =========================================
 
   function statusName(status) {
     return {
@@ -688,7 +741,17 @@
     }[status] || status;
   }
 
-  function renderOrders(containerId, orders, productMap, role) {
+  // =========================================
+  // ОТОБРАЖЕНИЕ ЗАКАЗОВ
+  // =========================================
+
+  function renderOrders(
+    containerId,
+    orders,
+    productMap,
+    buyerProfileMap,
+    role
+  ) {
     const container = $(containerId);
     if (!container) return;
 
@@ -699,55 +762,77 @@
 
     container.innerHTML = orders.map(order => {
       const product = productMap[order.product_id];
+
       const title = product ? product.name : "Товар";
       const price = product ? formatPrice(product.price) : "";
 
       let buttons = "";
 
       if (role === "seller" && order.status === "pending") {
-        buttons = `<button class="primary-btn" data-ready="${escapeHTML(order.id)}">Можно забирать</button>`;
+        buttons = `
+          <button
+            class="primary-btn"
+            data-ready="${escapeHTML(order.id)}"
+          >
+            Можно забирать
+          </button>
+        `;
       }
 
       if (role === "buyer" && order.status === "ready") {
-        buttons = `<button class="primary-btn" data-done="${escapeHTML(order.id)}">Забрал</button>`;
+        buttons = `
+          <button
+            class="primary-btn"
+            data-done="${escapeHTML(order.id)}"
+          >
+            Забрал
+          </button>
+        `;
       }
 
-      // Информация о покупателе показывается продавцу
+      // Имя покупателя из профиля или из orders
+      const buyerName =
+        buyerProfileMap[order.buyer_id] ||
+        order.buyer_username ||
+        "Покупатель";
+
       const buyerInfo = role === "seller"
         ? `
-          <div class="buyer-info" style="background:#f3f0ff;padding:12px;border-radius:12px;margin:12px 0;">
-            <strong>👤 Покупатель</strong>
-            <p style="margin:6px 0;">
-              Логин: <strong>${escapeHTML(order.buyer_username || "Старый заказ")}</strong>
-            </p>
-            <small>
-              ID: ${escapeHTML(order.buyer_id || "Неизвестно")}
-            </small>
+          <div class="buyer-info">
+            👤 <strong>Покупатель:</strong>
+            ${escapeHTML(buyerName)}
           </div>
         `
         : "";
 
       return `
         <article class="order-card">
+
           <h3>${escapeHTML(title)}</h3>
 
           <p>Цена: ${price}</p>
 
           ${buyerInfo}
 
-          <p>Статус: <strong>${escapeHTML(statusName(order.status))}</strong></p>
+          <p>
+            Статус:
+            <strong>${escapeHTML(statusName(order.status))}</strong>
+          </p>
 
-          <small>Заказ: ${escapeHTML(order.id.slice(0, 8))}</small>
-
-          <br>
-
-          <small>Дата: ${escapeHTML(formatDate(order.created_at))}</small>
+          <small>
+            Заказ: ${escapeHTML(order.id.slice(0, 8))}
+          </small>
 
           ${buttons}
+
         </article>
       `;
     }).join("");
   }
+
+  // =========================================
+  // ИЗМЕНЕНИЕ СТАТУСА ЗАКАЗА
+  // =========================================
 
   async function updateOrder(orderId, status) {
     try {
@@ -783,11 +868,16 @@
     });
 
     $("addProductBtn")?.addEventListener("click", addProduct);
+
     $("productSearch")?.addEventListener("input", renderProducts);
+
     $("profileLogoutBtn")?.addEventListener("click", logout);
 
     $("copyMyIdBtn")?.addEventListener("click", async () => {
-      const username = getMyUsername();
+      const username =
+        currentProfile?.username ||
+        currentUser?.user_metadata?.username ||
+        "";
 
       try {
         await navigator.clipboard.writeText(username);
