@@ -25,7 +25,6 @@
     el.style.color = error ? "#dc2626" : "#16a34a";
   }
 
-  // ИСПРАВЛЕНО: корректное управление hidden
   function show(el, visible = true) {
     if (!el) return;
 
@@ -308,7 +307,6 @@
       const panel = $(id);
 
       if (panel) {
-        // ИСПРАВЛЕНО: управляем hidden и display
         panel.hidden = id !== panelId;
         panel.style.display = id === panelId ? "" : "none";
       }
@@ -358,6 +356,7 @@
 
     return `
       <article class="product-card">
+
         ${
           image
             ? `<img src="${escapeHTML(image)}" alt="Фото товара" class="product-image">`
@@ -365,6 +364,7 @@
         }
 
         <div class="product-card-content">
+
           <h3>${escapeHTML(product.name)}</h3>
 
           <div class="product-price">
@@ -379,9 +379,29 @@
 
           ${
             isMine
-              ? `<button class="secondary-btn" disabled>Ваш товар</button>`
-              : `<button class="primary-btn" data-buy="${product.id}">Заказать</button>`
+              ? `
+                <button class="secondary-btn" disabled>
+                  Ваш товар
+                </button>
+
+                <button
+                  class="secondary-btn"
+                  data-delete="${escapeHTML(product.id)}"
+                  style="background:#dc2626;color:white;margin-top:8px;"
+                >
+                  🗑️ Удалить товар
+                </button>
+              `
+              : `
+                <button
+                  class="primary-btn"
+                  data-buy="${escapeHTML(product.id)}"
+                >
+                  Заказать
+                </button>
+              `
           }
+
         </div>
       </article>
     `;
@@ -407,6 +427,54 @@
       shop.innerHTML = filtered.length
         ? filtered.map(productCard).join("")
         : "<p>Ничего не найдено.</p>";
+    }
+  }
+
+  // =========================================
+  // УДАЛЕНИЕ ТОВАРА ПРОДАВЦОМ
+  // =========================================
+
+  async function deleteProduct(productId) {
+    const product = products.find(p => p.id === productId);
+
+    if (!product) {
+      alert("Товар уже отсутствует в каталоге.");
+      return;
+    }
+
+    // Проверяем, что товар принадлежит текущему пользователю
+    if (product.seller_id !== currentUser.id) {
+      alert("Можно удалять только собственные товары.");
+      return;
+    }
+
+    if (!confirm(
+      `Удалить товар "${product.name}"?\n\nОн исчезнет из магазина у всех пользователей. История заказов сохранится.`
+    )) {
+      return;
+    }
+
+    try {
+      const { data, error } = await sb
+        .from("products")
+        .update({ active: false })
+        .eq("id", productId)
+        .eq("seller_id", currentUser.id)
+        .select("id");
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error("Не удалось удалить товар. Проверь права доступа.");
+      }
+
+      alert("Товар успешно удалён из магазина!");
+
+      await loadProducts();
+
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Не удалось удалить товар");
     }
   }
 
@@ -627,7 +695,7 @@
       }
 
       if (role === "buyer" && order.status === "ready") {
-        buttons = `<button class="primary-btn" data-done="${order.id}">Заказ выдан</button>`;
+        buttons = `<button class="primary-btn" data-done="${order.id}">Забрал</button>`;
       }
 
       return `
@@ -668,7 +736,6 @@
     $("registerTab")?.addEventListener("click", showRegister);
 
     $("submitAuth")?.addEventListener("click", () => {
-      // ИСПРАВЛЕНО: проверяем реальное состояние hidden
       if ($("registerBox") && !$("registerBox").hidden) {
         register();
       } else {
@@ -704,10 +771,23 @@
       const buyButton = event.target.closest("[data-buy]");
       const readyButton = event.target.closest("[data-ready]");
       const doneButton = event.target.closest("[data-done]");
+      const deleteButton = event.target.closest("[data-delete]");
 
-      if (buyButton) createOrder(buyButton.dataset.buy);
-      if (readyButton) updateOrder(readyButton.dataset.ready, "ready");
-      if (doneButton) updateOrder(doneButton.dataset.done, "done");
+      if (buyButton) {
+        createOrder(buyButton.dataset.buy);
+      }
+
+      if (readyButton) {
+        updateOrder(readyButton.dataset.ready, "ready");
+      }
+
+      if (doneButton) {
+        updateOrder(doneButton.dataset.done, "done");
+      }
+
+      if (deleteButton) {
+        deleteProduct(deleteButton.dataset.delete);
+      }
     });
   }
 
@@ -760,4 +840,4 @@
 
   document.addEventListener("DOMContentLoaded", start);
 
-})();
+})(); 
