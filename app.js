@@ -840,4 +840,4 @@
 
   document.addEventListener("DOMContentLoaded", start);
 
-})(); 
+})();
