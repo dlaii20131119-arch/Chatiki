@@ -49,6 +49,15 @@
     });
   }
 
+  function formatDate(value) {
+    if (!value) return "Неизвестно";
+
+    return new Date(value).toLocaleString("ru-RU", {
+      dateStyle: "short",
+      timeStyle: "short"
+    });
+  }
+
   // =========================================
   // SUPABASE
   // =========================================
@@ -245,11 +254,16 @@
     currentProfile = data;
   }
 
-  function renderProfile() {
-    const username =
+  function getMyUsername() {
+    return (
       currentProfile?.username ||
       currentUser?.user_metadata?.username ||
-      "Пользователь";
+      "Пользователь"
+    );
+  }
+
+  function renderProfile() {
+    const username = getMyUsername();
 
     const displayName =
       currentUser?.user_metadata?.display_name ||
@@ -374,7 +388,7 @@
           <p>${escapeHTML(product.description || "")}</p>
 
           <small>
-            ${isMine ? "Ваш товар" : "Продавец: " + product.seller_id.slice(0, 8)}
+            ${isMine ? "Ваш товар" : "Продавец: " + escapeHTML(product.seller_id.slice(0, 8))}
           </small>
 
           ${
@@ -442,7 +456,6 @@
       return;
     }
 
-    // Проверяем, что товар принадлежит текущему пользователю
     if (product.seller_id !== currentUser.id) {
       alert("Можно удалять только собственные товары.");
       return;
@@ -604,6 +617,7 @@
         .insert({
           product_id: product.id,
           buyer_id: currentUser.id,
+          buyer_username: getMyUsername(),
           seller_id: product.seller_id,
           status: "pending"
         });
@@ -691,19 +705,44 @@
       let buttons = "";
 
       if (role === "seller" && order.status === "pending") {
-        buttons = `<button class="primary-btn" data-ready="${order.id}">Можно забирать</button>`;
+        buttons = `<button class="primary-btn" data-ready="${escapeHTML(order.id)}">Можно забирать</button>`;
       }
 
       if (role === "buyer" && order.status === "ready") {
-        buttons = `<button class="primary-btn" data-done="${order.id}">Забрал</button>`;
+        buttons = `<button class="primary-btn" data-done="${escapeHTML(order.id)}">Забрал</button>`;
       }
+
+      // Информация о покупателе показывается продавцу
+      const buyerInfo = role === "seller"
+        ? `
+          <div class="buyer-info" style="background:#f3f0ff;padding:12px;border-radius:12px;margin:12px 0;">
+            <strong>👤 Покупатель</strong>
+            <p style="margin:6px 0;">
+              Логин: <strong>${escapeHTML(order.buyer_username || "Старый заказ")}</strong>
+            </p>
+            <small>
+              ID: ${escapeHTML(order.buyer_id || "Неизвестно")}
+            </small>
+          </div>
+        `
+        : "";
 
       return `
         <article class="order-card">
           <h3>${escapeHTML(title)}</h3>
+
           <p>Цена: ${price}</p>
-          <p>Статус: <strong>${statusName(order.status)}</strong></p>
-          <small>Заказ: ${order.id.slice(0, 8)}</small>
+
+          ${buyerInfo}
+
+          <p>Статус: <strong>${escapeHTML(statusName(order.status))}</strong></p>
+
+          <small>Заказ: ${escapeHTML(order.id.slice(0, 8))}</small>
+
+          <br>
+
+          <small>Дата: ${escapeHTML(formatDate(order.created_at))}</small>
+
           ${buttons}
         </article>
       `;
@@ -748,10 +787,7 @@
     $("profileLogoutBtn")?.addEventListener("click", logout);
 
     $("copyMyIdBtn")?.addEventListener("click", async () => {
-      const username =
-        currentProfile?.username ||
-        currentUser?.user_metadata?.username ||
-        "";
+      const username = getMyUsername();
 
       try {
         await navigator.clipboard.writeText(username);
@@ -840,4 +876,4 @@
 
   document.addEventListener("DOMContentLoaded", start);
 
-})();
+})(); 
