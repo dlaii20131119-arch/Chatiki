@@ -3,7 +3,6 @@
 
   // =========================================
   // PVZ MARKET
-  // Основной JavaScript приложения
   // =========================================
 
   let sb = null;
@@ -15,7 +14,7 @@
   const $ = id => document.getElementById(id);
 
   // =========================================
-  // СООБЩЕНИЯ
+  // СООБЩЕНИЯ И ОТОБРАЖЕНИЕ
   // =========================================
 
   function message(id, text, error = false) {
@@ -26,8 +25,12 @@
     el.style.color = error ? "#dc2626" : "#16a34a";
   }
 
+  // ИСПРАВЛЕНО: корректное управление hidden
   function show(el, visible = true) {
-    if (el) el.style.display = visible ? "" : "none";
+    if (!el) return;
+
+    el.hidden = !visible;
+    el.style.display = visible ? "" : "none";
   }
 
   function escapeHTML(value) {
@@ -48,7 +51,7 @@
   }
 
   // =========================================
-  // ИНИЦИАЛИЗАЦИЯ SUPABASE
+  // SUPABASE
   // =========================================
 
   function initializeSupabase() {
@@ -75,7 +78,6 @@
     }
 
     sb = window.supabase.createClient(url, key);
-
     return true;
   }
 
@@ -94,6 +96,9 @@
     $("loginTab")?.classList.add("active");
     $("registerTab")?.classList.remove("active");
 
+    const button = $("submitAuth");
+    if (button) button.textContent = "Войти";
+
     message("authMessage", "");
   }
 
@@ -103,6 +108,9 @@
 
     $("loginTab")?.classList.remove("active");
     $("registerTab")?.classList.add("active");
+
+    const button = $("submitAuth");
+    if (button) button.textContent = "Зарегистрироваться";
 
     message("authMessage", "");
   }
@@ -119,11 +127,7 @@
     }
 
     if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
-      message(
-        "authMessage",
-        "Логин: 3–24 символа, только буквы, цифры и _",
-        true
-      );
+      message("authMessage", "Логин: 3–24 символа, только буквы, цифры и _", true);
       return;
     }
 
@@ -143,7 +147,7 @@
         password,
         options: {
           data: {
-            username: username,
+            username,
             display_name: displayName
           }
         }
@@ -152,11 +156,8 @@
       if (error) throw error;
 
       if (!data.session) {
-        message(
-          "authMessage",
-          "Аккаунт создан. Теперь войди в него."
-        );
         showLogin();
+        message("authMessage", "Аккаунт создан. Теперь войди в него.");
         return;
       }
 
@@ -167,12 +168,7 @@
 
     } catch (error) {
       console.error(error);
-
-      message(
-        "authMessage",
-        error.message || "Ошибка регистрации",
-        true
-      );
+      message("authMessage", error.message || "Ошибка регистрации", true);
     } finally {
       if (button) button.disabled = false;
     }
@@ -212,12 +208,7 @@
 
     } catch (error) {
       console.error(error);
-
-      message(
-        "authMessage",
-        "Не удалось войти. Проверь логин и пароль.",
-        true
-      );
+      message("authMessage", error.message || "Не удалось войти", true);
     } finally {
       if (button) button.disabled = false;
     }
@@ -272,10 +263,14 @@
     if ($("profileId")) {
       $("profileId").textContent = username;
     }
+
+    if ($("welcomeName")) {
+      $("welcomeName").textContent = displayName;
+    }
   }
 
   // =========================================
-  // ПЕРЕХОД В ПРИЛОЖЕНИЕ
+  // ГЛАВНОЕ ПРИЛОЖЕНИЕ
   // =========================================
 
   async function enterApplication() {
@@ -283,7 +278,6 @@
     show($("mainView"), true);
 
     renderProfile();
-
     openPanel("homePanel");
 
     await loadProducts();
@@ -312,7 +306,10 @@
 
     panels.forEach(id => {
       const panel = $(id);
+
       if (panel) {
+        // ИСПРАВЛЕНО: управляем hidden и display
+        panel.hidden = id !== panelId;
         panel.style.display = id === panelId ? "" : "none";
       }
     });
@@ -342,7 +339,6 @@
     }
 
     products = data || [];
-
     renderProducts();
   }
 
@@ -358,24 +354,17 @@
 
   function productCard(product) {
     const image = productImageUrl(product.image_path);
-
     const isMine = product.seller_id === currentUser.id;
 
     return `
       <article class="product-card">
-
         ${
           image
-            ? `<img
-                src="${escapeHTML(image)}"
-                alt="Фото товара"
-                class="product-image"
-              >`
+            ? `<img src="${escapeHTML(image)}" alt="Фото товара" class="product-image">`
             : `<div class="product-placeholder">📦</div>`
         }
 
         <div class="product-card-content">
-
           <h3>${escapeHTML(product.name)}</h3>
 
           <div class="product-price">
@@ -390,17 +379,9 @@
 
           ${
             isMine
-              ? `<button class="secondary-btn" disabled>
-                  Ваш товар
-                </button>`
-              : `<button
-                  class="primary-btn"
-                  data-buy="${product.id}"
-                >
-                  Заказать
-                </button>`
+              ? `<button class="secondary-btn" disabled>Ваш товар</button>`
+              : `<button class="primary-btn" data-buy="${product.id}">Заказать</button>`
           }
-
         </div>
       </article>
     `;
@@ -410,9 +391,7 @@
     const home = $("homeProducts");
     const shop = $("productList");
 
-    const search = (
-      $("productSearch")?.value || ""
-    ).toLowerCase();
+    const search = ($("productSearch")?.value || "").toLowerCase();
 
     const filtered = products.filter(product =>
       product.name.toLowerCase().includes(search)
@@ -438,9 +417,7 @@
   async function addProduct() {
     const name = $("productName")?.value.trim();
     const price = Number($("productPrice")?.value);
-    const description =
-      $("productDescription")?.value.trim() || "";
-
+    const description = $("productDescription")?.value.trim() || "";
     const file = $("productImage")?.files?.[0];
 
     if (!name) {
@@ -463,11 +440,7 @@
       return;
     }
 
-    if (file && ![
-      "image/jpeg",
-      "image/png",
-      "image/webp"
-    ].includes(file.type)) {
+    if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       message("productMessage", "Можно загружать JPG, PNG или WEBP", true);
       return;
     }
@@ -492,8 +465,7 @@
             ? "webp"
             : "jpg";
 
-        imagePath =
-          `${currentUser.id}/${crypto.randomUUID()}.${extension}`;
+        imagePath = `${currentUser.id}/${crypto.randomUUID()}.${extension}`;
 
         const { error: uploadError } = await sb.storage
           .from("product-photos")
@@ -517,10 +489,10 @@
 
       if (error) throw error;
 
-      if ($("productName")) $("productName").value = "";
-      if ($("productPrice")) $("productPrice").value = "";
-      if ($("productDescription")) $("productDescription").value = "";
-      if ($("productImage")) $("productImage").value = "";
+      $("productName").value = "";
+      $("productPrice").value = "";
+      $("productDescription").value = "";
+      $("productImage").value = "";
 
       message("productMessage", "Товар успешно добавлен!");
 
@@ -529,16 +501,10 @@
     } catch (error) {
       console.error(error);
 
-      message(
-        "productMessage",
-        error.message || "Не удалось добавить товар",
-        true
-      );
+      message("productMessage", error.message || "Не удалось добавить товар", true);
 
       if (imagePath) {
-        await sb.storage
-          .from("product-photos")
-          .remove([imagePath]);
+        await sb.storage.from("product-photos").remove([imagePath]);
       }
 
     } finally {
@@ -547,7 +513,7 @@
   }
 
   // =========================================
-  // СОЗДАНИЕ ЗАКАЗА
+  // ЗАКАЗЫ
   // =========================================
 
   async function createOrder(productId) {
@@ -560,9 +526,9 @@
       return;
     }
 
-    if (!confirm(
-      `Заказать "${product.name}" за ${formatPrice(product.price)}?`
-    )) return;
+    if (!confirm(`Заказать "${product.name}" за ${formatPrice(product.price)}?`)) {
+      return;
+    }
 
     try {
       const { error } = await sb
@@ -587,10 +553,6 @@
     }
   }
 
-  // =========================================
-  // ЗАКАЗЫ
-  // =========================================
-
   async function loadOrders() {
     const { data, error } = await sb
       .from("orders")
@@ -603,10 +565,7 @@
     }
 
     const orders = data || [];
-
-    const productIds = [...new Set(
-      orders.map(order => order.product_id)
-    )];
+    const productIds = [...new Set(orders.map(order => order.product_id))];
 
     let productMap = {};
 
@@ -621,16 +580,16 @@
       });
     }
 
-    const myOrders = orders.filter(
-      order => order.buyer_id === currentUser.id
+    const myOrders = orders.filter(order =>
+      order.buyer_id === currentUser.id
     );
 
-    const sellerOrders = orders.filter(
-      order => order.seller_id === currentUser.id
+    const sellerOrders = orders.filter(order =>
+      order.seller_id === currentUser.id
     );
 
-    const readyOrders = myOrders.filter(
-      order => order.status === "ready"
+    const readyOrders = myOrders.filter(order =>
+      order.status === "ready"
     );
 
     renderOrders("myOrders", myOrders, productMap, "buyer");
@@ -649,7 +608,6 @@
 
   function renderOrders(containerId, orders, productMap, role) {
     const container = $(containerId);
-
     if (!container) return;
 
     if (!orders.length) {
@@ -659,65 +617,30 @@
 
     container.innerHTML = orders.map(order => {
       const product = productMap[order.product_id];
-
-      const title = product
-        ? product.name
-        : "Товар";
-
-      const price = product
-        ? formatPrice(product.price)
-        : "";
+      const title = product ? product.name : "Товар";
+      const price = product ? formatPrice(product.price) : "";
 
       let buttons = "";
 
       if (role === "seller" && order.status === "pending") {
-        buttons = `
-          <button
-            class="primary-btn"
-            data-ready="${order.id}"
-          >
-            Можно забирать
-          </button>
-        `;
+        buttons = `<button class="primary-btn" data-ready="${order.id}">Можно забирать</button>`;
       }
 
       if (role === "buyer" && order.status === "ready") {
-        buttons = `
-          <button
-            class="primary-btn"
-            data-done="${order.id}"
-          >
-            Заказ выдан
-          </button>
-        `;
+        buttons = `<button class="primary-btn" data-done="${order.id}">Заказ выдан</button>`;
       }
 
       return `
         <article class="order-card">
-
           <h3>${escapeHTML(title)}</h3>
-
           <p>Цена: ${price}</p>
-
-          <p>
-            Статус:
-            <strong>${statusName(order.status)}</strong>
-          </p>
-
-          <small>
-            Заказ: ${order.id.slice(0, 8)}
-          </small>
-
+          <p>Статус: <strong>${statusName(order.status)}</strong></p>
+          <small>Заказ: ${order.id.slice(0, 8)}</small>
           ${buttons}
-
         </article>
       `;
     }).join("");
   }
-
-  // =========================================
-  // ИЗМЕНЕНИЕ СТАТУСОВ
-  // =========================================
 
   async function updateOrder(orderId, status) {
     try {
@@ -745,7 +668,8 @@
     $("registerTab")?.addEventListener("click", showRegister);
 
     $("submitAuth")?.addEventListener("click", () => {
-      if ($("registerBox")?.style.display !== "none") {
+      // ИСПРАВЛЕНО: проверяем реальное состояние hidden
+      if ($("registerBox") && !$("registerBox").hidden) {
         register();
       } else {
         login();
@@ -753,9 +677,7 @@
     });
 
     $("addProductBtn")?.addEventListener("click", addProduct);
-
     $("productSearch")?.addEventListener("input", renderProducts);
-
     $("profileLogoutBtn")?.addEventListener("click", logout);
 
     $("copyMyIdBtn")?.addEventListener("click", async () => {
@@ -783,17 +705,9 @@
       const readyButton = event.target.closest("[data-ready]");
       const doneButton = event.target.closest("[data-done]");
 
-      if (buyButton) {
-        createOrder(buyButton.dataset.buy);
-      }
-
-      if (readyButton) {
-        updateOrder(readyButton.dataset.ready, "ready");
-      }
-
-      if (doneButton) {
-        updateOrder(doneButton.dataset.done, "done");
-      }
+      if (buyButton) createOrder(buyButton.dataset.buy);
+      if (readyButton) updateOrder(readyButton.dataset.ready, "ready");
+      if (doneButton) updateOrder(doneButton.dataset.done, "done");
     });
   }
 
@@ -810,6 +724,7 @@
 
     if (error) {
       console.error(error);
+      alert("Ошибка авторизации: " + error.message);
       return;
     }
 
@@ -829,7 +744,7 @@
       showLogin();
     }
 
-    sb.auth.onAuthStateChange((event, session) => {
+    sb.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         currentUser = null;
         currentProfile = null;
@@ -838,6 +753,7 @@
 
         show($("authView"), true);
         show($("mainView"), false);
+        showLogin();
       }
     });
   }
