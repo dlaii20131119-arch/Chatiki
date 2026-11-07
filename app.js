@@ -49,6 +49,24 @@
     });
   }
 
+  function formatDate(value) {
+    if (!value) return "Дата неизвестна";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "Дата неизвестна";
+    }
+
+    return date.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
   // =========================================
   // SUPABASE
   // =========================================
@@ -688,7 +706,6 @@
       });
     }
 
-    // Получаем имена всех покупателей
     const buyerProfileMap = await loadBuyerProfiles(orders);
 
     const myOrders = orders.filter(order =>
@@ -764,7 +781,16 @@
       const product = productMap[order.product_id];
 
       const title = product ? product.name : "Товар";
-      const price = product ? formatPrice(product.price) : "";
+      const price = product ? formatPrice(product.price) : "Неизвестно";
+
+      const buyerLogin =
+        buyerProfileMap[order.buyer_id] ||
+        order.buyer_username ||
+        "Неизвестно";
+
+      const buyerName = buyerLogin;
+
+      const date = formatDate(order.created_at);
 
       let buttons = "";
 
@@ -790,17 +816,16 @@
         `;
       }
 
-      // Имя покупателя из профиля или из orders
-      const buyerName =
-        buyerProfileMap[order.buyer_id] ||
-        order.buyer_username ||
-        "Покупатель";
-
       const buyerInfo = role === "seller"
         ? `
           <div class="buyer-info">
-            👤 <strong>Покупатель:</strong>
+            👤 <strong>Имя покупателя:</strong>
             ${escapeHTML(buyerName)}
+          </div>
+
+          <div class="buyer-info">
+            🆔 <strong>Логин:</strong>
+            ${escapeHTML(buyerLogin)}
           </div>
         `
         : "";
@@ -808,15 +833,23 @@
       return `
         <article class="order-card">
 
-          <h3>${escapeHTML(title)}</h3>
-
-          <p>Цена: ${price}</p>
+          <h3>📦 ${escapeHTML(title)}</h3>
 
           ${buyerInfo}
 
           <p>
-            Статус:
-            <strong>${escapeHTML(statusName(order.status))}</strong>
+            📋 <strong>Статус:</strong>
+            ${escapeHTML(statusName(order.status))}
+          </p>
+
+          <p>
+            💰 <strong>Цена:</strong>
+            ${price}
+          </p>
+
+          <p>
+            🕒 <strong>Дата и время:</strong>
+            ${escapeHTML(date)}
           </p>
 
           <small>
@@ -966,4 +999,4 @@
 
   document.addEventListener("DOMContentLoaded", start);
 
-})();
+})(); 
